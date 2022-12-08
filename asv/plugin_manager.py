@@ -20,7 +20,7 @@ class PluginManager:
         self._plugins = []
 
     def load_plugins(self, package):
-        prefix = package.__name__ + '.'
+        prefix = f'{package.__name__}.'
         for module_finder, name, ispkg in pkgutil.iter_modules(package.__path__, prefix):
             __import__(name)
             mod = sys.modules[name]

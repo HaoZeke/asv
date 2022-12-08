@@ -97,7 +97,7 @@ def test_invalid_benchmark_tree(tmpdir):
     os.chdir(tmpdir)
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['benchmark_dir'] = INVALID_BENCHMARK_DIR
     d['env_dir'] = "env"
     d['repo'] = tools.generate_test_repo(tmpdir, [0]).path
@@ -138,7 +138,7 @@ def track_this():
         f.write("raise AssertionError('Should not be imported!')")
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = tools.generate_test_repo(tmpdir, [[0, 1]]).path
@@ -176,7 +176,7 @@ def test_import_failure_retry(tmpdir):
     dvcs = tools.generate_test_repo(tmpdir, [2, 1, 0])
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = dvcs.path
@@ -206,7 +206,7 @@ def test_conf_inside_benchmarks_dir(tmpdir):
         f.write("def track_this(): pass")
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = '.'
     d['repo'] = tools.generate_test_repo(tmpdir, [[0, 1]]).path
@@ -231,7 +231,7 @@ def test_code_extraction(tmpdir):
     shutil.copytree(BENCHMARK_DIR, 'benchmark')
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = tools.generate_test_repo(tmpdir, [0]).path

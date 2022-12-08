@@ -405,9 +405,6 @@ def test_no_such_name_error(dvcs_type, tmpdir):
         with pytest.raises(Exception) as excinfo:
             r.get_hash_from_name(None)
         assert excinfo.type not in (AssertionError, repo.NoSuchNameError)
-    elif dvcs_type == "hg":
-        # hglib seems to do some caching, so this doesn't work
-        pass
 
 
 @pytest.mark.parametrize('dvcs_type', [

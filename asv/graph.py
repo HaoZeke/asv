@@ -176,10 +176,11 @@ class Graph:
             self.n_series = 1
 
         def mean_axis0(v):
-            if not v:
-                return [None] * self.n_series
-            return [mean_na(x[j] for x in v)
-                    for j in range(self.n_series)]
+            return (
+                [mean_na(x[j] for x in v) for j in range(self.n_series)]
+                if v
+                else [None] * self.n_series
+            )
 
         # Average data over commit log
         val = []
@@ -220,7 +221,7 @@ class Graph:
         html_dir : str
             The root of the HTML tree.
         """
-        filename = os.path.join(html_dir, self.path + ".json")
+        filename = os.path.join(html_dir, f"{self.path}.json")
 
         # Drop weights
         val = [v[:2] for v in self.get_data()]
@@ -283,10 +284,7 @@ class Graph:
             if not isinstance(item, list):
                 self._steps[j] = item.get()
 
-        if self.scalar_series:
-            return self._steps[0]
-        else:
-            return self._steps
+        return self._steps[0] if self.scalar_series else self._steps
 
 
 def _compute_graph_steps(data, reraise=True):
@@ -296,12 +294,10 @@ def _compute_graph_steps(data, reraise=True):
         w = [d[2] for d in data]
 
         steps = step_detect.detect_steps(y, w)
-        new_steps = []
-
-        for left, right, cur_val, cur_min, cur_err in steps:
-            new_steps.append((x[left], x[right - 1] + 1, cur_val, cur_min, cur_err))
-
-        return new_steps
+        return [
+            (x[left], x[right - 1] + 1, cur_val, cur_min, cur_err)
+            for left, right, cur_val, cur_min, cur_err in steps
+        ]
     except BaseException as exc:
         if reraise:
             raise util.ParallelFailure(str(exc), exc.__class__, traceback.format_exc())
@@ -422,7 +418,7 @@ def _combine_graph_data(graphs):
     x_idx = dict(zip(x, range(len(x))))
 
     # Get y-values
-    ys = [[None] * len(x_idx) for j in range(n_series)]
+    ys = [[None] * len(x_idx) for _ in range(n_series)]
     pos = 0
     for dataset, graph in zip(datasets, graphs):
         for k, v, dv in dataset:

@@ -59,10 +59,7 @@ class Virtualenv(environment.Environment):
         # Parse python specifier
         if is_pypy:
             executable = python
-            if python == 'pypy':
-                python_version = '2'
-            else:
-                python_version = python[4:]
+            python_version = '2' if python == 'pypy' else python[4:]
         else:
             python_version = python
             executable = f"python{python_version}"
@@ -98,7 +95,7 @@ class Virtualenv(environment.Environment):
                                         self._tagged_env_vars)
 
     @classmethod
-    def matches(self, python):
+    def matches(cls, python):
         if not (re.match(r'^[0-9].*$', python) or re.match(r'^pypy[0-9.]*$', python)):
             # The python name should be a version number, or pypy+number
             return False
@@ -126,7 +123,7 @@ class Virtualenv(environment.Environment):
         it using `pip install`.
         """
         env = dict(os.environ)
-        env.update(self.build_env_vars)
+        env |= self.build_env_vars
 
         log.info(f"Creating virtualenv for {self.name}")
         util.check_call([
@@ -143,7 +140,7 @@ class Virtualenv(environment.Environment):
         pip_args = ['install', '-v', 'wheel', 'pip>=8']
 
         env = dict(os.environ)
-        env.update(self.build_env_vars)
+        env |= self.build_env_vars
 
         self._run_pip(pip_args, env=env)
 

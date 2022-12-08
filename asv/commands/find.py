@@ -217,20 +217,13 @@ class Find(Command):
 
             diff_b, diff_a = difference_3way(hi_result, mid_result, lo_result)
 
-            if diff_a >= diff_b:
-                return do_search(lo, mid)
-            else:
-                return do_search(mid, hi)
+            return do_search(lo, mid) if diff_a >= diff_b else do_search(mid, hi)
 
         result = do_search(0, len(commit_hashes) - 1)
 
         commit_name = repo.get_decorated_hash(commit_hashes[result], 8)
 
-        if invert:
-            direction = "improvement"
-        else:
-            direction = "regression"
-
+        direction = "improvement" if invert else "regression"
         log.info("Greatest {0} found: {1}".format(direction, commit_name))
 
         return 0

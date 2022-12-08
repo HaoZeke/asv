@@ -82,7 +82,7 @@ def make_argparser():
         "help", help="Display usage information")
     help_parser.set_defaults(func=help)
 
-    commands = dict((x.__name__, x) for x in util.iter_subclasses(Command))
+    commands = {x.__name__: x for x in util.iter_subclasses(Command)}
 
     for command in command_order:
         subparser = commands[str(command)].setup_arguments(subparsers)
@@ -102,13 +102,17 @@ def _make_docstring():
     lines = []
 
     for p in subparsers.choices.values():
-        lines.append('.. _cmd-{0}:'.format(p.prog.replace(' ', '-')))
-        lines.append('')
-        lines.append(p.prog)
-        lines.append('-' * len(p.prog))
-        lines.append('::')
-        lines.append('')
-        lines.extend('   ' + x for x in p.format_help().splitlines())
+        lines.extend(
+            (
+                '.. _cmd-{0}:'.format(p.prog.replace(' ', '-')),
+                '',
+                p.prog,
+                '-' * len(p.prog),
+                '::',
+                '',
+            )
+        )
+        lines.extend(f'   {x}' for x in p.format_help().splitlines())
         lines.append('')
 
     return '\n'.join(lines)

@@ -267,7 +267,7 @@ def browser(request, pytestconfig):
     ns['FirefoxHeadless'] = FirefoxHeadless
     ns['ChromeHeadless'] = ChromeHeadless
 
-    create_driver = ns.get(driver_str, None)
+    create_driver = ns.get(driver_str)
     if create_driver is None:
         src = "def create_driver():\n"
         src += textwrap.indent(driver_str, "    ")
@@ -284,6 +284,7 @@ def browser(request, pytestconfig):
     # Clean up on fixture finalization
     def fin():
         browser.quit()
+
     request.addfinalizer(fin)
 
     # Set default time to wait for AJAX requests to complete
@@ -305,10 +306,10 @@ def dummy_packages(request, monkeypatch):
     with locked_cache_dir(request.config, "asv-wheels", timeout=900, tag=tag) as cache_dir:
         wheel_dir = os.path.abspath(join(str(cache_dir), 'wheels'))
 
-        monkeypatch.setenv(str('PIP_FIND_LINKS'), str('file://' + wheel_dir))
+        monkeypatch.setenv('PIP_FIND_LINKS', str(f'file://{wheel_dir}'))
 
         condarc = join(wheel_dir, 'condarc')
-        monkeypatch.setenv(str('CONDARC'), str(condarc))
+        monkeypatch.setenv('CONDARC', str(condarc))
 
         if os.path.isdir(wheel_dir):
             return
@@ -326,11 +327,7 @@ def dummy_packages(request, monkeypatch):
             raise
 
         # Conda packages were installed in a local channel
-        if not WIN:
-            wheel_dir_str = "file://{0}".format(wheel_dir)
-        else:
-            wheel_dir_str = wheel_dir
-
+        wheel_dir_str = wheel_dir if WIN else "file://{0}".format(wheel_dir)
         with open(condarc, 'w') as f:
             f.write("channels:\n"
                     "- defaults\n"
@@ -353,7 +350,7 @@ def benchmarks_fixture(tmpdir):
     shutil.copytree(BENCHMARK_DIR, 'benchmark')
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = tools.generate_test_repo(tmpdir, [0]).path
@@ -395,13 +392,14 @@ def show_fixture(tmpdir, example_results):
     tmpdir = str(tmpdir)
     os.chdir(tmpdir)
 
-    conf = config.Config.from_json(
-        {'results_dir': example_results,
-         'repo': tools.generate_test_repo(tmpdir).path,
-         'project': 'asv',
-         'environment_type': "shouldn't matter what"})
-
-    return conf
+    return config.Config.from_json(
+        {
+            'results_dir': example_results,
+            'repo': tools.generate_test_repo(tmpdir).path,
+            'project': 'asv',
+            'environment_type': "shouldn't matter what",
+        }
+    )
 
 
 @pytest.fixture(params=[

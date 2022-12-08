@@ -52,11 +52,11 @@ def _find_conda():
 
     See https://github.com/airspeed-velocity/asv/issues/645 for more details.
     """
-    if 'CONDA_EXE' in os.environ:
-        conda = os.environ['CONDA_EXE']
-    else:
-        conda = util.which('conda')
-    return conda
+    return (
+        os.environ['CONDA_EXE']
+        if 'CONDA_EXE' in os.environ
+        else util.which('conda')
+    )
 
 
 class Conda(environment.Environment):
@@ -136,7 +136,7 @@ class Conda(environment.Environment):
 
         conda_args, pip_args = self._get_requirements()
         env = dict(os.environ)
-        env.update(self.build_env_vars)
+        env |= self.build_env_vars
 
         if not self._conda_environment_file:
             # The user-provided env file is assumed to set the python version
@@ -175,38 +175,36 @@ class Conda(environment.Environment):
                                     env=env)
             except Exception:
                 if env_file_name != env_file.name:
-                    log.info("conda env create/update failed: "
-                             "in {} with file {}".format(self._path, env_file_name))
+                    log.info(
+                        f"conda env create/update failed: in {self._path} with file {env_file_name}"
+                    )
                 elif os.path.isfile(env_file_name):
                     with open(env_file_name, 'r') as f:
                         text = f.read()
-                    log.info("conda env create/update failed: "
-                             "in {} with:\n{}".format(self._path, text))
+                    log.info(f"conda env create/update failed: in {self._path} with:\n{text}")
                 raise
         finally:
             os.unlink(env_file.name)
 
     def _get_requirements(self):
-        if self._requirements:
-            # retrieve and return all conda / pip dependencies
-            conda_args = []
-            pip_args = []
-
-            for key, val in self._requirements.items():
-                if key.startswith('pip+'):
-                    if val:
-                        pip_args.append("{0}=={1}".format(key[4:], val))
-                    else:
-                        pip_args.append(key[4:])
-                else:
-                    if val:
-                        conda_args.append("{0}={1}".format(key, val))
-                    else:
-                        conda_args.append(key)
-
-            return conda_args, pip_args
-        else:
+        if not self._requirements:
             return [], []
+        # retrieve and return all conda / pip dependencies
+        conda_args = []
+        pip_args = []
+
+        for key, val in self._requirements.items():
+            if key.startswith('pip+'):
+                if val:
+                    pip_args.append("{0}=={1}".format(key[4:], val))
+                else:
+                    pip_args.append(key[4:])
+            elif val:
+                conda_args.append("{0}={1}".format(key, val))
+            else:
+                conda_args.append(key)
+
+        return conda_args, pip_args
 
     def _run_conda(self, args, env=None):
         """
@@ -233,8 +231,7 @@ class Conda(environment.Environment):
             lock = _dummy_lock
 
         # Conda doesn't guarantee that user site directories are excluded
-        kwargs["env"] = dict(kwargs.pop("env", os.environ),
-                             PYTHONNOUSERSITE=str("True"))
+        kwargs["env"] = dict(kwargs.pop("env", os.environ), PYTHONNOUSERSITE="True")
 
         with lock():
             return super(Conda, self).run_executable(executable, args, **kwargs)

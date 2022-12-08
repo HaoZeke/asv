@@ -86,12 +86,7 @@ def get_weight(stats):
         a = stats['ci_99_a']
         b = stats['ci_99_b']
 
-        if math.isinf(a) or math.isinf(b):
-            # Infinite interval is due to too few samples --- consider
-            # weight as missing
-            return None
-
-        return 2 / abs(b - a)
+        return None if math.isinf(a) or math.isinf(b) else 2 / abs(b - a)
     except ZeroDivisionError:
         return None
 
@@ -132,10 +127,7 @@ def is_different(samples_a, samples_b, stats_a, stats_b, p_threshold=0.002):
     ci_a = (stats_a['ci_99_a'], stats_a['ci_99_b'])
     ci_b = (stats_b['ci_99_a'], stats_b['ci_99_b'])
 
-    if ci_a[1] >= ci_b[0] and ci_a[0] <= ci_b[1]:
-        return False
-
-    return True
+    return ci_a[1] < ci_b[0] or ci_a[0] > ci_b[1]
 
 
 def quantile_ci(x, q, alpha_min=0.01):
@@ -227,12 +219,7 @@ def quantile(x, q):
     j = int(math.floor(z))
     z -= j
 
-    if j == n - 1:
-        m = y[-1]
-    else:
-        m = (1 - z) * y[j] + z * y[j + 1]
-
-    return m
+    return y[-1] if j == n - 1 else (1 - z) * y[j] + z * y[j + 1]
 
 
 _mann_whitney_u_memo = {}
@@ -274,11 +261,7 @@ def mann_whitney_u(x, y, method='auto'):
     n = len(y)
 
     if method == 'auto':
-        if max(m, n) > 20:
-            method = 'normal'
-        else:
-            method = 'exact'
-
+        method = 'normal' if max(m, n) > 20 else 'exact'
     u, ties = mann_whitney_u_u(x, y)
 
     # Conservative tie breaking
@@ -326,10 +309,7 @@ def mann_whitney_u_u(x, y):
 def mann_whitney_u_cdf(m, n, u, memo=None):
     if memo is None:
         memo = {}
-    cdf = 0
-    for uu in range(u + 1):
-        cdf += mann_whitney_u_pmf(m, n, uu, memo)
-    return cdf
+    return sum(mann_whitney_u_pmf(m, n, uu, memo) for uu in range(u + 1))
 
 
 def mann_whitney_u_pmf(m, n, u, memo=None):
@@ -449,11 +429,7 @@ class LaplacePosterior:
         if len(y) == 0:
             raise ValueError("empty input")
 
-        if nu is None:
-            self.nu = len(y) - 1
-        else:
-            self.nu = nu
-
+        self.nu = len(y) - 1 if nu is None else nu
         # Sort input
         y = sorted(y)
 
@@ -470,7 +446,7 @@ class LaplacePosterior:
         if self._y_scale != 0:
             self.y = [(yp - self.mle) / self._y_scale for yp in y]
         else:
-            self.y = [0 for yp in y]
+            self.y = [0 for _ in y]
 
         self._cdf_norm = None
         self._cdf_memo = {}
@@ -485,13 +461,7 @@ class LaplacePosterior:
         if beta != beta:
             return beta
 
-        for k, y in enumerate(self.y):
-            if y > beta:
-                k0 = k
-                break
-        else:
-            k0 = len(self.y)
-
+        k0 = next((k for k, y in enumerate(self.y) if y > beta), len(self.y))
         cdf = 0
 
         nu = self.nu
@@ -509,16 +479,8 @@ class LaplacePosterior:
             c = 2 * k - len(self.y)
             y = sum(self.y[k:]) - sum(self.y[:k])
 
-            if k == 0:
-                a = -math.inf
-            else:
-                a = self.y[k - 1]
-
-            if k == k0:
-                b = beta
-            else:
-                b = self.y[k]
-
+            a = -math.inf if k == 0 else self.y[k - 1]
+            b = beta if k == k0 else self.y[k]
             if c == 0:
                 term = (b - a) / y**(nu + 1)
             else:
@@ -555,19 +517,12 @@ class LaplacePosterior:
 
         if k == 0:
             z = -nu * c * term
-            if z > 0:
-                beta = (z**(-1 / nu) - y) / c
-            else:
-                beta = -math.inf
+            beta = (z**(-1 / nu) - y) / c if z > 0 else -math.inf
         elif c == 0:
             beta = a + term * y**(nu + 1)
         else:
             z = (a * c + y)**(-nu) - nu * c * term
-            if z > 0:
-                beta = (z**(-1 / nu) - y) / c
-            else:
-                beta = math.inf
-
+            beta = (z**(-1 / nu) - y) / c if z > 0 else math.inf
         if k < len(self.y):
             beta = min(beta, self.y[k])
 

@@ -73,7 +73,7 @@ def human_list(input_list):
     """
     input_list = ["'{0}'".format(x) for x in input_list]
 
-    if len(input_list) == 0:
+    if not input_list:
         return 'nothing'
     elif len(input_list) == 1:
         return input_list[0]
@@ -94,7 +94,7 @@ def human_float(value, significant=3, truncate_small=None, significant_zeros=Fal
     if value == 0:
         return "0"
     elif math.isinf(value) or math.isnan(value):
-        return "{}".format(value)
+        return f"{value}"
     elif value < 0:
         sign = "-"
         value = -value
@@ -112,10 +112,7 @@ def human_float(value, significant=3, truncate_small=None, significant_zeros=Fal
     if magnitude <= -5 or magnitude >= 9:
         # Too many digits, use scientific notation
         fmt = "{{0:.{0}e}}".format(significant)
-    elif value == int(value):
-        value = int(round(value, num_digits))
-        fmt = "{0:d}"
-    elif num_digits <= 0:
+    elif value == int(value) or num_digits <= 0:
         value = int(round(value, num_digits))
         fmt = "{0:d}"
     else:
@@ -128,9 +125,12 @@ def human_float(value, significant=3, truncate_small=None, significant_zeros=Fal
         if formatted[-1] == '.':
             formatted = formatted[:-1]
 
-    if significant_zeros and '.' not in formatted:
-        if len(formatted) < significant:
-            formatted += "." + "0" * (significant - len(formatted))
+    if (
+        significant_zeros
+        and '.' not in formatted
+        and len(formatted) < significant
+    ):
+        formatted += "." + "0" * (significant - len(formatted))
 
     return formatted
 
@@ -167,10 +167,7 @@ def human_file_size(size, err=None):
         num_scale = 0
     else:
         num_scale = int(math.floor(math.log(size) / math.log(1000)))
-    if num_scale > 7:
-        suffix = '?'
-    else:
-        suffix = suffixes[num_scale].strip()
+    suffix = '?' if num_scale > 7 else suffixes[num_scale].strip()
     scale = int(math.pow(1000, num_scale))
     value = size / scale
 
@@ -178,9 +175,8 @@ def human_file_size(size, err=None):
 
     if err is None:
         return "{0:s}{1}".format(str_value, suffix)
-    else:
-        str_err = human_float(err / scale, 1, truncate_small=2)
-        return "{0:s}±{1:s}{2}".format(str_value, str_err, suffix)
+    str_err = human_float(err / scale, 1, truncate_small=2)
+    return "{0:s}±{1:s}{2}".format(str_value, str_err, suffix)
 
 
 _human_time_units = (
@@ -244,9 +240,8 @@ def human_time(seconds, err=None):
             str_time = human_float(seconds / units[i][1], 3, significant_zeros=True)
             if err is None:
                 return "{0:s}{1}".format(str_time, units[i][0])
-            else:
-                str_err = human_float(err / units[i][1], 1, truncate_small=2)
-                return "{0:s}±{1:s}{2}".format(str_time, str_err, units[i][0])
+            str_err = human_float(err / units[i][1], 1, truncate_small=2)
+            return "{0:s}±{1:s}{2}".format(str_time, str_err, units[i][0])
     return '~0'
 
 
@@ -298,10 +293,10 @@ def parse_human_time(string, base_period='d'):
     suffixes = '|'.join(units.keys())
 
     try:
-        m = re.match(r'^\s*([0-9.]+)\s*({})\s*$'.format(suffixes), string)
+        m = re.match(f'^\s*([0-9.]+)\s*({suffixes})\s*$', string)
         if m is None:
             raise ValueError()
-        return float(m.group(1)) * units[m.group(2)]
+        return float(m[1]) * units[m[2]]
     except ValueError:
         raise ValueError("%r is not a valid time period (valid units: %s)"
                          % (string, suffixes))
@@ -339,11 +334,8 @@ def which(filename, paths=None):
             if os.path.isfile(candidate) or os.path.islink(candidate):
                 candidates.append(candidate)
 
-    if len(candidates) == 0:
-        if paths is None:
-            loc_info = 'PATH'
-        else:
-            loc_info = os.pathsep.join(locations)
+    if not candidates:
+        loc_info = 'PATH' if paths is None else os.pathsep.join(locations)
         raise IOError("Could not find '{0}' in {1}".format(filename, loc_info))
 
     return candidates[0]
@@ -720,11 +712,7 @@ def check_output(args, valid_return_codes=(0,), timeout=600, dots=True,
     stdout = stdout.decode('utf-8', 'replace')
     stderr = stderr.decode('utf-8', 'replace')
 
-    if is_timeout:
-        retcode = TIMEOUT_RETCODE
-    else:
-        retcode = proc.returncode
-
+    retcode = TIMEOUT_RETCODE if is_timeout else proc.returncode
     if valid_return_codes is not None and retcode not in valid_return_codes:
         header = 'Error running {0} (exit status {1})'.format(' '.join(args), retcode)
         if display_error:
@@ -735,10 +723,7 @@ def check_output(args, valid_return_codes=(0,), timeout=600, dots=True,
                 log.error(get_content(header))
         raise ProcessError(args, retcode, stdout, stderr)
 
-    if return_stderr:
-        return (stdout, stderr, retcode)
-    else:
-        return stdout
+    return (stdout, stderr, retcode) if return_stderr else stdout
 
 
 def _killpg_safe(pgid, signo):
@@ -748,11 +733,7 @@ def _killpg_safe(pgid, signo):
     try:
         os.killpg(pgid, signo)
     except OSError as exc:
-        if exc.errno == errno.EPERM:
-            # OSX/BSD may raise EPERM on killpg if the process group
-            # already terminated
-            pass
-        else:
+        if exc.errno != errno.EPERM:
             raise
 
 
@@ -789,8 +770,7 @@ def write_json(path, data, api_version=None, compact=False):
         data = dict(data)
         data['version'] = api_version
 
-    open_kwargs = {}
-    open_kwargs['encoding'] = 'utf-8'
+    open_kwargs = {'encoding': 'utf-8'}
     with long_path_open(path, 'w', **open_kwargs) as fd:
         if not compact:
             json.dump(data, fd, indent=4, sort_keys=True)
@@ -818,8 +798,7 @@ def load_json(path, api_version=None, js_comments=False):
 
     path = os.path.abspath(path)
 
-    open_kwargs = {}
-    open_kwargs['encoding'] = 'utf-8'
+    open_kwargs = {'encoding': 'utf-8'}
     with long_path_open(path, 'r', **open_kwargs) as fd:
         content = fd.read()
 
@@ -836,22 +815,21 @@ def load_json(path, api_version=None, js_comments=False):
                 path, str(e)))
 
     if api_version is not None:
-        if 'version' in d:
-            if d['version'] < api_version:
-                raise UserError(
-                    "{0} is stored in an old file format.  Run "
-                    "`asv update` to update it.".format(path))
-            elif d['version'] > api_version:
-                raise UserError(
-                    "{0} is stored in a format that is newer than "
-                    "what this version of asv understands.  Update "
-                    "asv to use this file.".format(path))
-
-            del d['version']
-        else:
+        if 'version' not in d:
             raise UserError(
                 "No version specified in {0}.".format(path))
 
+        if d['version'] < api_version:
+            raise UserError(
+                "{0} is stored in an old file format.  Run "
+                "`asv update` to update it.".format(path))
+        elif d['version'] > api_version:
+            raise UserError(
+                "{0} is stored in a format that is newer than "
+                "what this version of asv understands.  Update "
+                "asv to use this file.".format(path))
+
+        del d['version']
     return d
 
 
@@ -908,13 +886,13 @@ def iter_chunks(s, n):
 def pick_n(items, n):
     """Pick n items, attempting to get equal index spacing.
     """
-    if not (n > 0):
+    if n <= 0:
         raise ValueError("Invalid number of items to pick")
     spacing = max(float(len(items)) / n, 1)
     spaced = []
     i = 0
-    while int(i) < len(items) and len(spaced) < n:
-        spaced.append(items[int(i)])
+    while i < len(items) and len(spaced) < n:
+        spaced.append(items[i])
         i += spacing
     return spaced
 
@@ -939,8 +917,7 @@ def iter_subclasses(cls):
     """
     for x in cls.__subclasses__():
         yield x
-        for y in iter_subclasses(x):
-            yield y
+        yield from iter_subclasses(x)
 
 
 def hash_equal(a, b):
@@ -1096,9 +1073,7 @@ def is_nan(x):
     """
     Returns `True` if x is a NaN value.
     """
-    if isinstance(x, float):
-        return x != x
-    return False
+    return x != x if isinstance(x, float) else False
 
 
 def is_na(value):
@@ -1113,8 +1088,7 @@ def mean_na(values):
     Take a mean, with the understanding that None and NaN stand for
     missing data.
     """
-    values = [x for x in values if not is_na(x)]
-    if values:
+    if values := [x for x in values if not is_na(x)]:
         return sum(values) / len(values)
     else:
         return None
@@ -1125,17 +1099,15 @@ def geom_mean_na(values):
     Compute geometric mean, with the understanding that None and NaN
     stand for missing data.
     """
-    values = [x for x in values if not is_na(x)]
-    if values:
-        exponent = 1 / len(values)
-        prod = 1.0
-        acc = 0
-        for x in values:
-            prod *= abs(x)**exponent
-            acc += x
-        return prod if acc >= 0 else -prod
-    else:
+    if not (values := [x for x in values if not is_na(x)]):
         return None
+    exponent = 1 / len(values)
+    prod = 1.0
+    acc = 0
+    for x in values:
+        prod *= abs(x)**exponent
+        acc += x
+    return prod if acc >= 0 else -prod
 
 
 def ceildiv(numerator, denominator):
@@ -1151,9 +1123,7 @@ if not WIN:
         return path
 else:
     def long_path(path):
-        if path.startswith("\\\\"):
-            return path
-        return "\\\\?\\" + os.path.abspath(path)
+        return path if path.startswith("\\\\") else "\\\\?\\" + os.path.abspath(path)
 
     def _remove_readonly(func, path, exc_info):
         """Try harder to remove files on Windows"""
@@ -1174,10 +1144,7 @@ else:
         return open(long_path(filename), *a, **kw)
 
     def long_path_rmtree(path, ignore_errors=False):
-        if ignore_errors:
-            onerror = None
-        else:
-            onerror = _remove_readonly
+        onerror = None if ignore_errors else _remove_readonly
         shutil.rmtree(long_path(path),
                       ignore_errors=ignore_errors,
                       onerror=onerror)
@@ -1203,7 +1170,7 @@ def sanitize_filename(filename):
                  "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
                  "LPT9"]
     if filename.upper() in forbidden:
-        filename = filename + "_"
+        filename = f"{filename}_"
 
     return filename
 
@@ -1277,9 +1244,8 @@ def interpolate_command(command, variables):
     cwd = None
 
     while result:
-        m = re.match('^([A-Za-z_][A-Za-z0-9_]*)=(.*)$', result[0])
-        if m:
-            env[m.group(1)] = m.group(2)
+        if m := re.match('^([A-Za-z_][A-Za-z0-9_]*)=(.*)$', result[0]):
+            env[m[1]] = m[2]
             del result[0]
             continue
 
@@ -1288,18 +1254,15 @@ def interpolate_command(command, variables):
                 raise UserError("Configuration error: multiple return-code specifications "
                                 "in command {0!r} "
                                 "".format(command))
-                break
-
             if result[0] == 'return-code=any':
                 return_codes = None
                 return_codes_set = True
                 del result[0]
                 continue
 
-            m = re.match('^return-code=([0-9,]+)$', result[0])
-            if m:
+            if m := re.match('^return-code=([0-9,]+)$', result[0]):
                 try:
-                    return_codes = set(int(x) for x in m.group(1).split(","))
+                    return_codes = {int(x) for x in m[1].split(",")}
                     return_codes_set = True
                     del result[0]
                     continue
@@ -1315,8 +1278,6 @@ def interpolate_command(command, variables):
                 raise UserError("Configuration error: multiple in-dir specifications "
                                 "in command {0!r} "
                                 "".format(command))
-                break
-
             cwd = result[0][7:]
             del result[0]
             continue

@@ -118,40 +118,37 @@ class Profile(Command):
         repo.pull()
 
         machine_name = Machine.get_unique_machine_name()
-        if revision is None:
-            rev = conf.branches[0]
-        else:
-            rev = revision
-
+        rev = conf.branches[0] if revision is None else revision
         try:
             commit_hash = repo.get_hash_from_name(rev)
         except NoSuchNameError as exc:
             raise util.UserError("Unknown commit {0}".format(exc))
 
         profile_data = None
-        checked_out = set()
-
         # First, we see if we already have the profile in the results
         # database
         if not force and commit_hash:
+            checked_out = set()
+
             for result in iter_results_for_machine(
                     conf.results_dir, machine_name):
-                if hash_equal(commit_hash, result.commit_hash):
-                    if result.has_profile(benchmark):
-                        env_matched = any(result.env.name == env.name
-                                          for env in environments)
-                        if env_matched:
-                            if result.env.name not in checked_out:
-                                # We need to checkout the correct commit so that
-                                # the line numbers in the profile data match up with
-                                # what's in the source tree.
-                                result.env.checkout_project(repo, commit_hash)
-                                checked_out.add(result.env.name)
-                            profile_data = result.get_profile(benchmark)
-                            break
+                if hash_equal(
+                    commit_hash, result.commit_hash
+                ) and result.has_profile(benchmark):
+                    env_matched = any(result.env.name == env.name
+                                      for env in environments)
+                    if env_matched:
+                        if result.env.name not in checked_out:
+                            # We need to checkout the correct commit so that
+                            # the line numbers in the profile data match up with
+                            # what's in the source tree.
+                            result.env.checkout_project(repo, commit_hash)
+                            checked_out.add(result.env.name)
+                        profile_data = result.get_profile(benchmark)
+                        break
 
         if profile_data is None:
-            if len(environments) == 0:
+            if not environments:
                 log.error("No environments selected")
                 return
 
@@ -177,13 +174,12 @@ class Profile(Command):
                 raise util.UserError("'{0}' benchmark not found".format(benchmark))
             elif len(benchmarks) > 1:
                 exact_matches = benchmarks.filter_out([x for x in benchmarks if x != benchmark])
-                if len(exact_matches) == 1:
-                    log.warning("'{0}' matches more than one benchmark, "
-                                "using exact match".format(benchmark))
-                    benchmarks = exact_matches
-                else:
+                if len(exact_matches) != 1:
                     raise util.UserError("'{0}' matches more than one benchmark".format(benchmark))
 
+                log.warning("'{0}' matches more than one benchmark, "
+                            "using exact match".format(benchmark))
+                benchmarks = exact_matches
             benchmark_name, = benchmarks.keys()
 
             if not force:

@@ -4,8 +4,6 @@ x = None
 def time_foo():
     if x != 42:
         raise RuntimeError()
-    for y in range(1000):
-        pass
 
 
 def setup_foo():

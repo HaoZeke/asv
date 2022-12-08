@@ -11,8 +11,8 @@ from asv import util
 
 @pytest.mark.flaky(reruns=3, reruns_delay=5)
 def test_timeout():
-    timeout_codes = []
-    timeout_codes.append(r"""
+    timeout_codes = [
+        """
 import sys
 import time
 
@@ -23,10 +23,8 @@ sys.stderr.flush()
 time.sleep(60)
 sys.stdout.write("Stdout after waiting\n")
 sys.stderr.write("Stderr after waiting\n")
-    """)
-
-    # Another example, where timeout is due to a hanging sub-subprocess
-    timeout_codes.append(r"""
+    """,
+        """
 import sys
 import subprocess
 
@@ -42,8 +40,8 @@ subprocess.call([
 ])
 sys.stdout.write("Stdout after waiting\n")
 sys.stderr.write("Stderr after waiting\n")
-    """)
-
+    """,
+    ]
     for timeout_code in timeout_codes:
         t = time.time()
         try:

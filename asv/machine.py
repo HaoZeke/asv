@@ -17,8 +17,7 @@ def iter_machine_files(results_dir):
     for root, dirs, files in os.walk(results_dir):
         for filename in files:
             if filename == 'machine.json':
-                path = os.path.join(root, filename)
-                yield path
+                yield os.path.join(root, filename)
 
 
 def _get_unique_machine_name():
@@ -39,11 +38,7 @@ class MachineCollection:
 
     @classmethod
     def load(cls, machine_name, _path=None):
-        if _path is None:
-            path = cls.get_machine_file_path()
-        else:
-            path = _path
-
+        path = cls.get_machine_file_path() if _path is None else _path
         d = {}
         if os.path.isfile(path):
             d = util.load_json(path, cls.api_version)
@@ -58,23 +53,14 @@ class MachineCollection:
 
     @classmethod
     def save(cls, machine_name, machine_info, _path=None):
-        if _path is None:
-            path = cls.get_machine_file_path()
-        else:
-            path = _path
-        if os.path.isfile(path):
-            d = util.load_json(path)
-        else:
-            d = {}
+        path = cls.get_machine_file_path() if _path is None else _path
+        d = util.load_json(path) if os.path.isfile(path) else {}
         d[machine_name] = machine_info
         util.write_json(path, d, cls.api_version)
 
     @classmethod
     def update(cls, _path=None):
-        if _path is None:
-            path = cls.get_machine_file_path()
-        else:
-            path = _path
+        path = cls.get_machine_file_path() if _path is None else _path
         if os.path.isfile(path):
             util.update_json(cls, path, cls.api_version)
 
@@ -128,9 +114,7 @@ class Machine:
 
     @classmethod
     def get_unique_machine_name(cls):
-        if cls.hardcoded_machine_name:
-            return cls.hardcoded_machine_name
-        return _get_unique_machine_name()
+        return cls.hardcoded_machine_name or _get_unique_machine_name()
 
     @staticmethod
     def get_defaults():
@@ -189,9 +173,9 @@ class Machine:
         except util.UserError as e:
             console.log.error(str(e) + '\n')
             d = {}
-        d.update(kwargs)
+        d |= kwargs
         if (not len(d) and interactive) or force_interactive:
-            d.update(self.generate_machine_file(use_defaults=use_defaults))
+            d |= self.generate_machine_file(use_defaults=use_defaults)
 
         machine_name = d['machine']
 

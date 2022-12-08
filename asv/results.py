@@ -17,9 +17,7 @@ def iter_results_paths(results):
     """
     Iterate over all of the result file paths.
     """
-    skip_files = set([
-        'machine.json', 'benchmarks.json'
-    ])
+    skip_files = {'machine.json', 'benchmarks.json'}
     for root, dirs, files in os.walk(results):
         # Iterate over files only if machine.json is valid json
         machine_json = os.path.join(root, "machine.json")
@@ -97,8 +95,7 @@ def get_existing_hashes(results):
     Get a list of the commit hashes that have already been tested.
     """
     log.info("Getting existing hashes")
-    hashes = list(set(iter_existing_hashes(results)))
-    return hashes
+    return list(set(iter_existing_hashes(results)))
 
 
 def get_result_hash_from_prefix(results, machine_name, commit_prefix):
@@ -157,19 +154,12 @@ def _compatible_results(result, result_params, params):
     """
     if result is None:
         # All results missing, eg. build failure
-        return [None for param in itertools.product(*params)]
+        return [None for _ in itertools.product(*params)]
 
     # Pick results for those parameters that also appear in the
     # current benchmark
-    old_results = {}
-    for param, value in zip(itertools.product(*result_params), result):
-        old_results[param] = value
-
-    new_results = []
-    for param in itertools.product(*params):
-        new_results.append(old_results.get(param))
-
-    return new_results
+    old_results = dict(zip(itertools.product(*result_params), result))
+    return [old_results.get(param) for param in itertools.product(*params)]
 
 
 class Results:
@@ -478,10 +468,11 @@ class Results:
                     if old_samples[j] is not None and new_samples[j] is not None:
                         new_samples[j] = old_samples[j] + new_samples[j]
 
-            # Retain old result where requested
-            merge_idx = [j for j in range(len(new_result))
-                         if selected_idx is not None and j not in selected_idx]
-            if merge_idx:
+            if merge_idx := [
+                j
+                for j in range(len(new_result))
+                if selected_idx is not None and j not in selected_idx
+            ]:
                 old_result = self.get_result_value(benchmark_name, benchmark['params'])
                 old_samples = self.get_result_samples(benchmark_name, benchmark['params'])
                 old_stats = self.get_result_stats(benchmark_name, benchmark['params'])
@@ -517,7 +508,7 @@ class Results:
         self._stats[benchmark_name] = new_stats
         self._samples[benchmark_name] = new_samples
 
-        self._benchmark_params[benchmark_name] = benchmark['params'] if benchmark['params'] else []
+        self._benchmark_params[benchmark_name] = benchmark['params'] or []
         self._started_at[benchmark_name] = util.datetime_to_js_timestamp(started_at)
         if duration is None:
             self._duration.pop(benchmark_name, None)
@@ -602,9 +593,12 @@ class Results:
                         value = [x.get(key[6:]) if x is not None else None
                                  for x in z]
 
-                if key != 'params':
-                    if isinstance(value, list) and all(x is None for x in value):
-                        value = None
+                if (
+                    key != 'params'
+                    and isinstance(value, list)
+                    and all(x is None for x in value)
+                ):
+                    value = None
 
                 if key.startswith('stats_') or key == 'duration':
                     value = util.truncate_float_list(value)
@@ -616,11 +610,11 @@ class Results:
 
             results[name] = row
 
-        other_durations = {}
-        for key, value in self._duration.items():
-            if key.startswith('<'):
-                other_durations[key] = value
-
+        other_durations = {
+            key: value
+            for key, value in self._duration.items()
+            if key.startswith('<')
+        }
         data = {
             'commit_hash': self._commit_hash,
             'env_name': self._env_name,
@@ -756,15 +750,17 @@ class Results:
         Reformat data in api_version 1 format to version 2.
         """
         try:
-            d2 = {}
+            d2 = {
+                'commit_hash': d['commit_hash'],
+                'date': d['date'],
+                'env_name': d.get(
+                    'env_name',
+                    environment.get_env_name(
+                        '', d['python'], d['requirements'], {}
+                    ),
+                ),
+            }
 
-            d2['commit_hash'] = d['commit_hash']
-            d2['date'] = d['date']
-            d2['env_name'] = d.get('env_name',
-                                   environment.get_env_name('',
-                                                            d['python'],
-                                                            d['requirements'],
-                                                            {}))
             d2['params'] = d['params']
             d2['python'] = d['python']
             d2['requirements'] = d['requirements']
@@ -799,11 +795,7 @@ class Results:
                 stats[key] = value['stats']
                 benchmark_params[key] = value['params']
 
-            if 'profiles' in d:
-                profiles = d['profiles']
-            else:
-                profiles = {}
-
+            profiles = d['profiles'] if 'profiles' in d else {}
             started_at = d.get('started_at', {})
             duration = d.get('duration', {})
             benchmark_version = d.get('benchmark_version', {})
@@ -850,9 +842,12 @@ class Results:
                     if key_name == 'params' and value is None:
                         value = []
 
-                    if key_name != 'params' and isinstance(value, list):
-                        if all(x is None for x in value):
-                            value = None
+                    if (
+                        key_name != 'params'
+                        and isinstance(value, list)
+                        and all(x is None for x in value)
+                    ):
+                        value = None
 
                     r.append(value)
 
@@ -896,7 +891,6 @@ def format_benchmark_result(results, benchmark):
     result = results.get_result_value(name, benchmark['params'])
     stats = results.get_result_stats(name, benchmark['params'])
 
-    total_count = len(result)
     failure_count = sum(r is None for r in result)
 
     info = None
@@ -904,6 +898,7 @@ def format_benchmark_result(results, benchmark):
 
     # Display status
     if failure_count > 0:
+        total_count = len(result)
         if failure_count == total_count:
             info = "failed"
         else:
@@ -920,20 +915,16 @@ def format_benchmark_result(results, benchmark):
         display = _format_benchmark_result(display_result, benchmark)
         display = "\n".join(display).strip()
         details = display
-    else:
-        if failure_count == 0:
+    elif failure_count == 0:
             # Failure already shown above
-            if not result:
-                display = "[]"
-            else:
-                if stats[0]:
-                    err = statistics.get_err(result[0], stats[0])
-                else:
-                    err = None
-                display = util.human_value(result[0], benchmark['unit'], err=err)
-                if len(result) > 1:
-                    display += ";..."
-            info = display
+        if result:
+            err = statistics.get_err(result[0], stats[0]) if stats[0] else None
+            display = util.human_value(result[0], benchmark['unit'], err=err)
+            if len(result) > 1:
+                display += ";..."
+        else:
+            display = "[]"
+        info = display
 
     return info, details
 
@@ -1012,7 +1003,7 @@ def _format_param_value(value_repr):
 
     for regex in regexs:
         m = re.match(regex, value_repr)
-        if m and m.group(1).strip():
-            return m.group(1)
+        if m and m[1].strip():
+            return m[1]
 
     return value_repr

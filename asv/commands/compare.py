@@ -15,11 +15,10 @@ from .. import util, statistics
 
 
 def mean(values):
-    if all([value is None for value in values]):
+    if all(value is None for value in values):
         return None
-    else:
-        values = [value for value in values if value is not None]
-        return sum(values) / float(len(values))
+    values = [value for value in values if value is not None]
+    return sum(values) / float(len(values))
 
 
 def unroll_result(benchmark_name, params, *values):
@@ -49,7 +48,7 @@ def unroll_result(benchmark_name, params, *values):
         if params == ():
             name = benchmark_name
         else:
-            name = "%s(%s)" % (benchmark_name, ", ".join(params))
+            name = f'{benchmark_name}({", ".join(params)})'
         yield (name,) + value
 
 
@@ -65,16 +64,16 @@ def _is_result_better(a, b, a_ss, b_ss, factor, use_stats=True):
 
     """
 
-    if use_stats and a_ss and b_ss and a_ss[0] and b_ss[0] and (
-            a_ss[0].get('repeat', 0) != 1 and b_ss[0].get('repeat', 0) != 1):
-        # Return False if estimates don't differ.
-        #
-        # Special-case the situation with only one sample, in which
-        # case we do the comparison only based on `factor` as there's
-        # not enough data to do statistics.
-        if not statistics.is_different(a_ss[1], b_ss[1],
-                                       a_ss[0], b_ss[0]):
-            return False
+    if (
+        use_stats
+        and a_ss
+        and b_ss
+        and a_ss[0]
+        and b_ss[0]
+        and (a_ss[0].get('repeat', 0) != 1 and b_ss[0].get('repeat', 0) != 1)
+        and not statistics.is_different(a_ss[1], b_ss[1], a_ss[0], b_ss[0])
+    ):
+        return False
 
     return a < b / factor
 
@@ -146,7 +145,7 @@ class Compare(Command):
             d = load_json(path)
             machines.append(d['machine'])
 
-        if len(machines) == 0:
+        if not machines:
             raise util.UserError("No results found")
         elif machine is None:
             if len(machines) > 1:
@@ -225,11 +224,11 @@ class Compare(Command):
                 ss_2[(name, machine_env_name)] = (stats, samples)
                 versions_2[(name, machine_env_name)] = version
 
-        if len(results_1) == 0:
+        if not results_1:
             raise util.UserError(
                 "Did not find results for commit {0}".format(hash_1))
 
-        if len(results_2) == 0:
+        if not results_2:
             raise util.UserError(
                 "Did not find results for commit {0}".format(hash_2))
 
@@ -252,16 +251,8 @@ class Compare(Command):
         improved = False
 
         for benchmark in joint_benchmarks:
-            if benchmark in results_1:
-                time_1 = results_1[benchmark]
-            else:
-                time_1 = math.nan
-
-            if benchmark in results_2:
-                time_2 = results_2[benchmark]
-            else:
-                time_2 = math.nan
-
+            time_1 = results_1[benchmark] if benchmark in results_1 else math.nan
+            time_2 = results_2[benchmark] if benchmark in results_2 else math.nan
             if benchmark in ss_1 and ss_1[benchmark][0]:
                 err_1 = statistics.get_err(time_1, ss_1[benchmark][0])
             else:
@@ -328,7 +319,7 @@ class Compare(Command):
                 # Mark statistically insignificant results
                 if (_is_result_better(time_1, time_2, None, None, factor) or
                         _is_result_better(time_2, time_1, None, None, factor)):
-                    ratio = "~" + ratio.strip()
+                    ratio = f"~{ratio.strip()}"
 
             if only_changed and mark in (' ', 'x'):
                 continue
@@ -346,11 +337,7 @@ class Compare(Command):
             else:
                 bench['all'].append((color, details, benchmark, ratio_num))
 
-        if split:
-            keys = ['green', 'default', 'red', 'lightgrey']
-        else:
-            keys = ['all']
-
+        keys = ['green', 'default', 'red', 'lightgrey'] if split else ['all']
         titles = {}
         titles['green'] = "Benchmarks that have improved:"
         titles['default'] = "Benchmarks that have stayed the same:"
@@ -373,17 +360,9 @@ class Compare(Command):
             color_print("     [{0:8s}]       [{1:8s}]".format(hash_1[:8], hash_2[:8]))
 
             name_1 = commit_names.get(hash_1)
-            if name_1:
-                name_1 = '<{0}>'.format(name_1)
-            else:
-                name_1 = ''
-
+            name_1 = '<{0}>'.format(name_1) if name_1 else ''
             name_2 = commit_names.get(hash_2)
-            if name_2:
-                name_2 = '<{0}>'.format(name_2)
-            else:
-                name_2 = ''
-
+            name_2 = '<{0}>'.format(name_2) if name_2 else ''
             if name_1 or name_2:
                 color_print("     {0:10s}       {1:10s}".format(name_1, name_2))
 

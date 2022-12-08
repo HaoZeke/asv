@@ -67,9 +67,8 @@ class TuningTest:
 
     def teardown(self, n):
         # The time benchmark may call it one additional time
-        if not (self.counter[0] <= n + 1 and self.counter[1] == 1):
-            raise RuntimeError("Number and repeat didn't have effect: {} {}".format(
-                self.counter, n))
+        if self.counter[0] > n + 1 or self.counter[1] != 1:
+            raise RuntimeError(f"Number and repeat didn't have effect: {self.counter} {n}")
 
 
 def setup_skip(n):

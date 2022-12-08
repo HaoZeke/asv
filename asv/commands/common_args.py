@@ -13,11 +13,7 @@ def add_global_arguments(parser, suppress_defaults=True):
     # arguments both before and after subcommand. Only the top-level
     # parser should have suppress_defaults=False
 
-    if suppress_defaults:
-        suppressor = dict(default=argparse.SUPPRESS)
-    else:
-        suppressor = dict()
-
+    suppressor = dict(default=argparse.SUPPRESS) if suppress_defaults else {}
     parser.add_argument(
         "--verbose", "-v", action="store_true",
         help="Increase verbosity",
@@ -29,9 +25,12 @@ def add_global_arguments(parser, suppress_defaults=True):
         default=(argparse.SUPPRESS if suppress_defaults else 'asv.conf.json'))
 
     parser.add_argument(
-        "--version", action="version", version="%(prog)s " + __version__,
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
         help="Print program version",
-        **suppressor)
+        **suppressor,
+    )
 
 
 def add_compare(parser, only_changed_default=False, sort_default='name'):
@@ -135,11 +134,7 @@ def add_bench(parser):
         return value
 
     def parse_affinity(value):
-        if "," in value:
-            value = value.split(",")
-        else:
-            value = [value]
-
+        value = value.split(",") if "," in value else [value]
         affinity_list = []
         for v in value:
             if "-" in v:
@@ -206,7 +201,7 @@ class PythonArgAction(argparse.Action):
         if values == "same":
             items.extend(["existing:same"])
         else:
-            items.extend([":" + value for value in values])
+            items.extend([f":{value}" for value in values])
         setattr(namespace, "env_spec", items)
 
 
@@ -267,10 +262,14 @@ def add_record_samples(parser, record_default=False):
               """Store raw measurement samples, not only statistics"""),
         default=record_default)
     grp.add_argument(
-        "--no-record-samples", action="store_false", dest="record_samples",
-        help=(argparse.SUPPRESS if not record_default else
-              """Do not store raw measurement samples, but only statistics"""),
-        default=record_default)
+        "--no-record-samples",
+        action="store_false",
+        dest="record_samples",
+        help="""Do not store raw measurement samples, but only statistics"""
+        if record_default
+        else argparse.SUPPRESS,
+        default=record_default,
+    )
     parser.add_argument(
         "--append-samples", action="store_true",
         help="""Combine new measurement samples with previous results,
@@ -284,7 +283,7 @@ def positive_int(string):
     """
     try:
         value = int(string)
-        if not value > 0:
+        if value <= 0:
             raise ValueError()
         return value
     except ValueError:
@@ -299,7 +298,7 @@ def positive_int_or_inf(string):
         if string == 'all':
             return math.inf
         value = int(string)
-        if not value > 0:
+        if value <= 0:
             raise ValueError()
         return value
     except ValueError:

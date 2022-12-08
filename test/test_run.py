@@ -24,11 +24,15 @@ def test_set_commit_hash(capsys, existing_env_conf):
     r = repo.get_repo(conf)
     commit_hash = r.get_hash_from_name(r.get_branch_name())
 
-    tools.run_asv_with_conf(conf, 'run', '--set-commit-hash=' + r.get_branch_name(),
-                            _machine_file=join(tmpdir, 'asv-machine.json'))
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        f'--set-commit-hash={r.get_branch_name()}',
+        _machine_file=join(tmpdir, 'asv-machine.json'),
+    )
 
     env_name = list(environment.get_environments(conf, None))[0].name
-    result_filename = commit_hash[:conf.hash_length] + '-' + env_name + '.json'
+    result_filename = f'{commit_hash[:conf.hash_length]}-{env_name}.json'
     assert result_filename in os.listdir(join('results_workflow', 'orangutan'))
 
     result_path = join('results_workflow', 'orangutan', result_filename)
@@ -51,10 +55,14 @@ def test_run_spec(basic_conf_2):
     branch_commit = dvcs.get_hash("some-branch")
     template_dir = os.path.join(tmpdir, "results_workflow_template")
     results_dir = os.path.join(tmpdir, 'results_workflow')
-    tools.run_asv_with_conf(conf, 'run', initial_commit + "^!",
-                            '--bench=time_secondary.track_value',
-                            '--quick',
-                            _machine_file=join(tmpdir, 'asv-machine.json'))
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        f"{initial_commit}^!",
+        '--bench=time_secondary.track_value',
+        '--quick',
+        _machine_file=join(tmpdir, 'asv-machine.json'),
+    )
     shutil.copytree(results_dir, template_dir)
 
     def _test_run(range_spec, branches, expected_commits):
@@ -78,7 +86,7 @@ def test_run_spec(basic_conf_2):
         if pyver.startswith('pypy'):
             pyver = pyver[2:]
 
-        expected = set(['machine.json'])
+        expected = {'machine.json'}
         for commit in expected_commits:
             for psver in tools.DUMMY2_VERSIONS:
                 expected.add(f'{commit[:8]}-{tool_name}-py{pyver}-asv_dummy_'
@@ -143,10 +151,16 @@ def test_run_build_failure(basic_conf):
 
     # Check results
     hashes = dvcs.get_branch_hashes()
-    fn_broken, = glob.glob(join(tmpdir, 'results_workflow', 'orangutan',
-                                hashes[1][:8] + '-*.json'))
-    fn_ok, = glob.glob(join(tmpdir, 'results_workflow', 'orangutan',
-                            hashes[0][:8] + '-*.json'))
+    (fn_broken,) = glob.glob(
+        join(
+            tmpdir, 'results_workflow', 'orangutan', f'{hashes[1][:8]}-*.json'
+        )
+    )
+    (fn_ok,) = glob.glob(
+        join(
+            tmpdir, 'results_workflow', 'orangutan', f'{hashes[0][:8]}-*.json'
+        )
+    )
 
     data_broken = util.load_json(fn_broken)
     data_ok = util.load_json(fn_ok)
@@ -293,8 +307,8 @@ def test_env_matrix_value(basic_conf):
         # Check run produced a result
         result_dir = join(tmpdir, 'results_workflow', 'orangutan')
 
-        result_fn1, = glob.glob(result_dir + '/*-SOME_TEST_VAR1.json')
-        result_fn2, = glob.glob(result_dir + '/*-SOME_TEST_VAR2.json')
+        result_fn1, = glob.glob(f'{result_dir}/*-SOME_TEST_VAR1.json')
+        result_fn2, = glob.glob(f'{result_dir}/*-SOME_TEST_VAR2.json')
 
         data = util.load_json(result_fn1)
         assert data['result_columns'][0] == 'result'

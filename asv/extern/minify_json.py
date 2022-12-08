@@ -48,9 +48,9 @@ def json_minify(string, strip_space=True):
                 in_multi = True
             elif val == '//':
                 in_single = True
-        elif val == '*/' and in_multi and not (in_string or in_single):
+        elif val == '*/' and in_multi and not in_string and not in_single:
             in_multi = False
-        elif val in '\r\n' and not (in_multi or in_string) and in_single:
+        elif val in '\r\n' and not (in_multi or in_string):
             in_single = False
         elif not ((in_multi or in_single) or (val in ' \r\n\t' and strip_space)):
             new_str.append(val)

@@ -85,13 +85,24 @@ def test_publish(tmpdir, example_results):
     assert index['params']['branch'] == ['master']
 
     repo = get_repo(conf)
-    revision_to_hash = dict((r, h) for h, r in repo.get_revisions(commits).items())
+    revision_to_hash = {r: h for h, r in repo.get_revisions(commits).items()}
 
     def check_file(branch, cython):
-        fn = join(tmpdir, 'html', 'graphs', cython, 'arch-x86_64', 'branch-' + branch,
-                  'cpu-Intel(R) Core(TM) i5-2520M CPU @ 2.50GHz (4 cores)',
-                  'machine-cheetah', 'numpy-1.8', 'os-Linux (Fedora 20)', 'python-2.7', 'ram-8.2G',
-                  'time_coordinates.time_latitude.json')
+        fn = join(
+            tmpdir,
+            'html',
+            'graphs',
+            cython,
+            'arch-x86_64',
+            f'branch-{branch}',
+            'cpu-Intel(R) Core(TM) i5-2520M CPU @ 2.50GHz (4 cores)',
+            'machine-cheetah',
+            'numpy-1.8',
+            'os-Linux (Fedora 20)',
+            'python-2.7',
+            'ram-8.2G',
+            'time_coordinates.time_latitude.json',
+        )
         data = util.load_json(fn)
         data_commits = [revision_to_hash[x[0]] for x in data]
         if branch == "master":
@@ -151,11 +162,8 @@ def _graph_path(dvcs_type):
 
 def test_publish_range_spec(generate_result_dir):
     conf, repo, commits = generate_result_dir(5 * [1])
-    for range_spec, expected in (
-        ([commits[0], commits[-1]], set([commits[0], commits[-1]])),
-        ('HEAD~2..HEAD' if repo.dvcs == 'git' else '.~1:',
-            set(commits[-2:])),
-    ):
+    for range_spec, expected in (([commits[0], commits[-1]], {commits[0], commits[-1]}), ('HEAD~2..HEAD' if repo.dvcs == 'git' else '.~1:',
+            set(commits[-2:]))):
         tools.run_asv_with_conf(conf, "publish", range_spec)
         data = util.load_json(join(conf.html_dir, 'index.json'))
         assert set(data['revision_to_hash'].values()) == expected
@@ -274,10 +282,10 @@ def test_regression_multiple_branches(dvcs_type, tmpdir):
         ],
     )
     commit_values = {}
-    branches = dict(
-        (branch, list(reversed(dvcs.get_branch_hashes(branch))))
+    branches = {
+        branch: list(reversed(dvcs.get_branch_hashes(branch)))
         for branch in (master, "stable")
-    )
+    }
     for branch, values in (
         (master, 10 * [1]),
         ("stable", 5 * [1] + 5 * [2]),
@@ -313,9 +321,7 @@ def test_regression_non_monotonic(dvcs_type, tmpdir):
     dvcs = tools.generate_repo_from_ops(tmpdir, dvcs_type,
                                         [("commit", i, d) for i, d in enumerate(dates)])
     commits = list(reversed(dvcs.get_branch_hashes()))
-    commit_values = {}
-    for commit, value in zip(commits, 5 * [1] + 5 * [2]):
-        commit_values[commit] = value
+    commit_values = dict(zip(commits, 5 * [1] + 5 * [2]))
     conf = tools.generate_result_dir(tmpdir, dvcs, commit_values)
     tools.run_asv_with_conf(conf, "publish")
     regressions = util.load_json(join(conf.html_dir, "regressions.json"))
@@ -365,9 +371,9 @@ def test_regression_atom_feed(generate_result_dir):
 
     # Check there's a link of some sort to the website in the content
     content = entries[0].find('{http://www.w3.org/2005/Atom}content')
-    assert ('<a href="index.html#time_func?commits=' + commits[5]) in content.text
+    assert f'<a href="index.html#time_func?commits={commits[5]}' in content.text
     content = entries[1].find('{http://www.w3.org/2005/Atom}content')
-    assert ('<a href="index.html#time_func?commits=' + commits[10]) in content.text
+    assert f'<a href="index.html#time_func?commits={commits[10]}' in content.text
 
     # Smoke check ids
     id_1 = entries[0].find('{http://www.w3.org/2005/Atom}id')
@@ -389,9 +395,7 @@ def test_regression_atom_feed_update(dvcs_type, tmpdir):
     commits = list(reversed(dvcs.get_branch_hashes()))
 
     # Old results (drop last 6)
-    commit_values = {}
-    for commit, value in zip(commits, values[:-5]):
-        commit_values[commit] = value
+    commit_values = dict(zip(commits, values[:-5]))
     conf = tools.generate_result_dir(tmpdir, dvcs, commit_values,
                                      updated=datetime.datetime(1970, 1, 1))
 
@@ -421,7 +425,7 @@ def test_regression_atom_feed_update(dvcs_type, tmpdir):
 
     assert len(new_entries) == len(old_entries) == 2
 
-    for j, (a, b) in enumerate(zip(new_entries, old_entries)):
+    for a, b in zip(new_entries, old_entries):
         a_id = a.find('{http://www.w3.org/2005/Atom}id')
         b_id = b.find('{http://www.w3.org/2005/Atom}id')
         assert a_id.text == b_id.text
