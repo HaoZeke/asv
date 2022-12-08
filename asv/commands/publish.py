@@ -27,8 +27,7 @@ def check_benchmark_params(name, benchmark):
         benchmark['params'] = []
         benchmark['param_names'] = []
 
-    msg = "Information in benchmarks.json for benchmark %s is malformed" % (
-        name)
+    msg = f"Information in benchmarks.json for benchmark {name} is malformed"
     if (not isinstance(benchmark['params'], list) or
             not isinstance(benchmark['param_names'], list)):
         raise ValueError(msg)
@@ -71,13 +70,12 @@ class Publish(Command):
 
     @staticmethod
     def iter_results(conf, repo, range_spec=None):
-        if range_spec is not None:
-            if isinstance(range_spec, list):
-                hashes = range_spec
-            else:
-                hashes = repo.get_hashes_from_range(range_spec)
-        else:
+        if range_spec is None:
             hashes = None
+        elif isinstance(range_spec, list):
+            hashes = range_spec
+        else:
+            hashes = repo.get_hashes_from_range(range_spec)
         for result in iter_results(conf.results_dir):
             if hashes is None or result.commit_hash in hashes:
                 yield result
@@ -156,11 +154,11 @@ class Publish(Command):
                 tags[tag] = revisions[tags[tag]]
                 hash_to_date[commit_hash] = repo.get_date_from_name(commit_hash)
 
-            revision_to_date = dict((r, hash_to_date[h]) for h, r in revisions.items())
+            revision_to_date = {r: hash_to_date[h] for h, r in revisions.items()}
 
-            branches = dict(
-                (branch, repo.get_branch_commits(branch))
-                for branch in conf.branches)
+            branches = {
+                branch: repo.get_branch_commits(branch) for branch in conf.branches
+            }
 
         log.step()
         log.info("Loading results")
@@ -175,8 +173,12 @@ class Publish(Command):
                 # Print a warning message if we couldn't find the branch of a commit
                 if not len(branches_for_commit):
                     msg = "Couldn't find {} in branches ({})"
-                    log.warning(msg.format(results.commit_hash[:conf.hash_length],
-                                           ", ".join(str(branch) for branch in branches.keys())))
+                    log.warning(
+                        msg.format(
+                            results.commit_hash[: conf.hash_length],
+                            ", ".join(str(branch) for branch in branches),
+                        )
+                    )
 
                 for key in results.get_result_keys(benchmarks):
                     b = benchmarks[key]
@@ -204,7 +206,7 @@ class Publish(Command):
                                 cur_params[param_key] = ''
 
                         # Fill in missing params
-                        for param_key in params.keys():
+                        for param_key in params:
                             if param_key not in cur_params:
                                 cur_params[param_key] = None
                                 params[param_key].add(None)
@@ -216,9 +218,11 @@ class Publish(Command):
             # Get the parameter sets for all graphs
             graph_param_list = []
             for path, graph in graphs:
-                if 'summary' not in graph.params:
-                    if graph.params not in graph_param_list:
-                        graph_param_list.append(graph.params)
+                if (
+                    'summary' not in graph.params
+                    and graph.params not in graph_param_list
+                ):
+                    graph_param_list.append(graph.params)
 
         log.step()
         log.info("Detecting steps")
@@ -251,14 +255,14 @@ class Publish(Command):
         log.step()
         log.info("Writing index")
         benchmark_map = dict(benchmarks)
-        for key in benchmark_map.keys():
+        for key in benchmark_map:
             check_benchmark_params(key, benchmark_map[key])
         for key, val in params.items():
             val = list(val)
             val.sort(key=lambda x: '[none]' if x is None else str(x))
             params[key] = val
         params['branch'] = [repo.get_branch_name(branch) for branch in conf.branches]
-        revision_to_hash = dict((r, h) for h, r in revisions.items())
+        revision_to_hash = {r: h for h, r in revisions.items()}
         util.write_json(os.path.join(conf.html_dir, "index.json"), {
             'project': conf.project,
             'project_url': conf.project_url,

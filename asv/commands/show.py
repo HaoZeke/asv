@@ -61,7 +61,7 @@ class Show(Command):
             d = load_json(path)
             machines.append(d['machine'])
 
-        if len(machines) == 0:
+        if not machines:
             raise util.UserError("No results found")
         elif machine is None:
             pass
@@ -180,11 +180,7 @@ class Show(Command):
             started_at = "n/a"
 
         duration = result.duration.get(benchmark['name'])
-        if duration is not None:
-            duration = util.human_time(duration)
-        else:
-            duration = "n/a"
-
+        duration = util.human_time(duration) if duration is not None else "n/a"
         if started_at != "n/a" or duration != "n/a":
             color_print(f'  started: {started_at}, duration: {duration}')
 
@@ -211,11 +207,11 @@ class Show(Command):
                 values = [util.human_value(x, benchmark['unit']) if x is not None else None
                           for x in values]
 
-            if not all(x is None for x in values):
+            if any(x is not None for x in values):
                 color_print(f'  {key}: {", ".join(map(str, values))}')
 
         samples = result.get_result_samples(benchmark['name'], benchmark['params'])
-        if not all(x is None for x in samples):
+        if any(x is not None for x in samples):
             color_print(f"  samples: {samples}")
 
         color_print("")

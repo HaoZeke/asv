@@ -48,7 +48,7 @@ class FeedEntry:
         self.id_date = id_date
 
     def get_atom(self, id_prefix, language):
-        item = etree.Element(ATOM_NS + 'entry')
+        item = etree.Element(f'{ATOM_NS}entry')
 
         id_context = ["entry"]
         if self.id_context is None:
@@ -56,34 +56,30 @@ class FeedEntry:
         else:
             id_context += list(self.id_context)
 
-        if self.id_date is None:
-            id_date = self.updated
-        else:
-            id_date = self.id_date
-
-        el = etree.Element(ATOM_NS + 'id')
+        id_date = self.updated if self.id_date is None else self.id_date
+        el = etree.Element(f'{ATOM_NS}id')
         el.text = _get_id(id_prefix, id_date, id_context)
         item.append(el)
 
-        el = etree.Element(ATOM_NS + 'title')
-        el.attrib[XML_NS + 'lang'] = language
+        el = etree.Element(f'{ATOM_NS}title')
+        el.attrib[f'{XML_NS}lang'] = language
         el.text = self.title
         item.append(el)
 
-        el = etree.Element(ATOM_NS + 'updated')
+        el = etree.Element(f'{ATOM_NS}updated')
         el.text = self.updated.strftime('%Y-%m-%dT%H:%M:%SZ')
         item.append(el)
 
         if self.link:
-            el = etree.Element(ATOM_NS + 'link')
-            el.attrib[ATOM_NS + 'href'] = self.link
+            el = etree.Element(f'{ATOM_NS}link')
+            el.attrib[f'{ATOM_NS}href'] = self.link
             item.append(el)
 
-        el = etree.Element(ATOM_NS + 'content')
-        el.attrib[XML_NS + 'lang'] = language
+        el = etree.Element(f'{ATOM_NS}content')
+        el.attrib[f'{XML_NS}lang'] = language
         if self.content:
             el.text = self.content
-            el.attrib[ATOM_NS + 'type'] = 'html'
+            el.attrib[f'{ATOM_NS}type'] = 'html'
         else:
             el.text = ' '
         item.append(el)
@@ -123,35 +119,35 @@ def write_atom(dest, entries, author, title, address, updated=None, link=None,
         else:
             updated = datetime.datetime.utcnow()
 
-    root = etree.Element(ATOM_NS + 'feed')
+    root = etree.Element(f'{ATOM_NS}feed')
 
     # id (obligatory)
-    el = etree.Element(ATOM_NS + 'id')
+    el = etree.Element(f'{ATOM_NS}id')
     el.text = _get_id(address, None, ["feed", author, title])
     root.append(el)
 
     # author (obligatory)
-    el = etree.Element(ATOM_NS + 'author')
-    el2 = etree.Element(ATOM_NS + 'name')
+    el = etree.Element(f'{ATOM_NS}author')
+    el2 = etree.Element(f'{ATOM_NS}name')
     el2.text = author
     el.append(el2)
     root.append(el)
 
     # title (obligatory)
-    el = etree.Element(ATOM_NS + 'title')
-    el.attrib[XML_NS + 'lang'] = language
+    el = etree.Element(f'{ATOM_NS}title')
+    el.attrib[f'{XML_NS}lang'] = language
     el.text = title
     root.append(el)
 
     # updated (obligatory)
-    el = etree.Element(ATOM_NS + 'updated')
+    el = etree.Element(f'{ATOM_NS}updated')
     el.text = updated.strftime('%Y-%m-%dT%H:%M:%SZ')
     root.append(el)
 
     # link
     if link is not None:
-        el = etree.Element(ATOM_NS + 'link')
-        el.attrib[ATOM_NS + 'href'] = link
+        el = etree.Element(f'{ATOM_NS}link')
+        el.attrib[f'{ATOM_NS}href'] = link
         root.append(el)
 
     # entries

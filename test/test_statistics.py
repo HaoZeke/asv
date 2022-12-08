@@ -208,13 +208,7 @@ def test_laplace_posterior_ci():
         cis = _check_ci(estimator, sampler, nsamples=300)
         atol = 5 / 300
         for _, alpha, alpha_got in cis:
-            if sampler == get_z_exp:
-                # Result should be ok for the assumed distribution
-                rtol = 0.25
-            else:
-                # For other distributions, order of magnitude should match
-                rtol = 2.0
-
+            rtol = 0.25 if sampler == get_z_exp else 2.0
             assert np.allclose(alpha_got, alpha, atol=atol, rtol=rtol)
 
 
@@ -424,25 +418,23 @@ def test_mann_whitney_u_R():
 
             if max(m, n) <= 20:
                 err = 1e-10  # exact method
+            elif min(m, n) < 3:
+                err = 0.4
+            elif min(m, n) < 10:
+                err = 0.1
             else:
-                # normal approximation
-                if min(m, n) < 3:
-                    err = 0.4
-                elif min(m, n) < 10:
-                    err = 0.1
-                else:
-                    err = 0.05
+                err = 0.05
 
             assert u == r.rx('statistic')[0][0]
             assert p == pytest.approx(r.rx('p.value')[0][0], abs=0, rel=err)
 
 
 def test_binom():
-    for n in range(10):
-        for k in range(10):
-            p = statistics.binom(n, k)
-            if 0 <= k <= n:
-                p2 = math.factorial(n) / math.factorial(k) / math.factorial(n - k)
-            else:
-                p2 = 0
-            assert p == p2
+    for n, k in product(range(10), range(10)):
+        p = statistics.binom(n, k)
+        p2 = (
+            math.factorial(n) / math.factorial(k) / math.factorial(n - k)
+            if 0 <= k <= n
+            else 0
+        )
+        assert p == p2

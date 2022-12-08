@@ -86,10 +86,7 @@ class Hg(Repo):
                 return True
 
         # Check for a local path
-        if cls.is_local_repo(url):
-            return True
-
-        return False
+        return bool(cls.is_local_repo(url))
 
     def get_range_spec(self, commit_a, commit_b):
         return '{0}::{1} and not {0}'.format(commit_a, commit_b)
@@ -159,19 +156,16 @@ class Hg(Repo):
         return None
 
     def get_tags(self):
-        tags = {}
-        for item in self._repo.log(b"tag()"):
-            tags[self._decode(item.tags)] = self._decode(item.node)
-        return tags
+        return {
+            self._decode(item.tags): self._decode(item.node)
+            for item in self._repo.log(b"tag()")
+        }
 
     def get_date_from_name(self, name):
         return self.get_date(name)
 
     def get_branch_commits(self, branch):
-        if self._repo.version >= (4, 5):
-            query = "branch({0})"
-        else:
-            query = "ancestors({0})"
+        query = "branch({0})" if self._repo.version >= (4, 5) else "ancestors({0})"
         return self.get_hashes_from_range(query.format(self.get_branch_name(branch)),
                                           followfirst=True)
 

@@ -110,7 +110,7 @@ def iter_matrix(environment_type, pythons, conf, explicit_selection=False):
 
         rule = {}
 
-        for key in platform_keys.keys():
+        for key in platform_keys:
             if key in include:
                 rule[key] = include.pop(key)
 
@@ -170,11 +170,10 @@ def _parse_matrix(matrix, bare_keys=()):
             submatrix = matrix.pop(t, {})
             matrices.append((t, submatrix))
 
-        # Check if spurious keys left
-        remaining_keys = tuple(matrix.keys())
-        if remaining_keys:
-            raise util.UserError('Unknown keys in "matrix" configuration: {}, expected: {}'.format(
-                remaining_keys, matrix_types + tuple(bare_keys)))
+        if remaining_keys := tuple(matrix.keys()):
+            raise util.UserError(
+                f'Unknown keys in "matrix" configuration: {remaining_keys}, expected: {matrix_types + tuple(bare_keys)}'
+            )
     else:
         # Backward-compatibility for old-style config
         matrices = [('req', matrix)]
@@ -259,15 +258,9 @@ def get_env_name(tool_name, python, requirements, tagged_env_vars, build=False):
         Whether to omit non-build environment variables.
         The canonical name of the environment is the name with build=False.
     """
-    if tool_name:
-        name = [tool_name]
-    else:
-        # Backward compatibility vs. result file names
-        name = []
-
+    name = [tool_name] if tool_name else []
     name.append("py{0}".format(python))
-    reqs = list(requirements.items())
-    reqs.sort()
+    reqs = sorted(requirements.items())
     for key, val in reqs:
         if val:
             name.append(''.join([key, val]))
@@ -276,20 +269,19 @@ def get_env_name(tool_name, python, requirements, tagged_env_vars, build=False):
 
     env_vars = _untag_env_vars(tagged_env_vars, build=build)
 
-    for env_var, value in sorted(env_vars.items()):
-        name.append(''.join([env_var, value]))
-
+    name.extend(
+        ''.join([env_var, value])
+        for env_var, value in sorted(env_vars.items())
+    )
     return util.sanitize_filename('-'.join(name))
 
 
 def _untag_env_vars(tagged_env_vars, build=False):
-    vars = {}
-
-    for (tag, key), value in tagged_env_vars.items():
-        if not build or tag == 'build':
-            vars[key] = value
-
-    return vars
+    return {
+        key: value
+        for (tag, key), value in tagged_env_vars.items()
+        if not build or tag == 'build'
+    }
 
 
 def get_environments(conf, env_specifiers, verbose=True):
@@ -506,10 +498,11 @@ class Environment:
         self._install_command = conf.install_command
         self._uninstall_command = conf.uninstall_command
 
-        self._global_env_vars = {}
-        self._global_env_vars['ASV'] = 'true'
-        self._global_env_vars['ASV_PROJECT'] = conf.project
-        self._global_env_vars['ASV_CONF_DIR'] = os.path.abspath(os.getcwd())
+        self._global_env_vars = {
+            'ASV': 'true',
+            'ASV_PROJECT': conf.project,
+            'ASV_CONF_DIR': os.path.abspath(os.getcwd()),
+        }
         self._global_env_vars['ASV_ENV_NAME'] = self.name
         self._global_env_vars['ASV_ENV_DIR'] = self._path
         self._global_env_vars['ASV_ENV_TYPE'] = self.tool_name
@@ -571,7 +564,7 @@ class Environment:
         return self._get_installed_commit_hash()
 
     @classmethod
-    def matches(self, python):
+    def matches(cls, python):
         """
         Returns `True` if this environment subclass can handle the
         given Python specifier.
@@ -739,7 +732,7 @@ class Environment:
 
         # All environment variables are available as interpolation variables,
         # lowercased without the prefix.
-        kwargs = dict()
+        kwargs = {}
         for key, value in self._global_env_vars.items():
             if key == 'ASV':
                 continue
@@ -766,7 +759,7 @@ class Environment:
         for cmd, env, return_codes, cwd in interpolated:
             environ = dict(os.environ)
             if extra_env is not None:
-                environ.update(extra_env)
+                environ |= extra_env
             environ.update(env)
             if cwd is None:
                 cwd = default_cwd
@@ -906,11 +899,7 @@ class Environment:
         env.update(self._global_env_vars)
 
         # Insert bin dirs to PATH
-        if "PATH" in env:
-            paths = env["PATH"].split(os.pathsep)
-        else:
-            paths = []
-
+        paths = env["PATH"].split(os.pathsep) if "PATH" in env else []
         if WIN:
             subpaths = ['Library\\mingw-w64\\bin',
                         'Library\\bin',
@@ -933,9 +922,7 @@ class Environment:
         # When running pip, we need to set PIP_USER to false, as --user (which
         # may have been set from a pip config file) is incompatible with
         # virtualenvs.
-        kwargs["env"] = dict(env,
-                             PIP_USER=str("false"),
-                             PATH=str(os.pathsep.join(paths)))
+        kwargs["env"] = dict(env, PIP_USER="false", PATH=str(os.pathsep.join(paths)))
         exe = self.find_executable(executable)
         return util.check_output([exe] + args, **kwargs)
 

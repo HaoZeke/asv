@@ -17,7 +17,7 @@ def _truncate_floats(item, digits=5):
     elif isinstance(item, list):
         return [_truncate_floats(x, digits) for x in item]
     elif isinstance(item, dict):
-        return dict((k, _truncate_floats(v)) for k, v in item.items())
+        return {k: _truncate_floats(v) for k, v in item.items()}
     else:
         return item
 
@@ -223,7 +223,7 @@ def test_iter_results(capsys, tmpdir, example_results): # noqa F811 noqa F811 re
     # The directory should be ignored without machine.json
     os.unlink(os.path.join(path, 'machine.json'))
     res = list(results.iter_results(path))
-    assert len(res) == 0
+    assert not res
     out, err = capsys.readouterr()
     assert "machine.json" in out
 

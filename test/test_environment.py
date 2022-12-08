@@ -78,7 +78,7 @@ def test_presence_checks(tmpdir, monkeypatch):
         # Tell conda to not use hardlinks: on Windows it's not possible
         # to delete hard links to files in use, which causes problem when
         # trying to cleanup environments during this test
-        monkeypatch.setenv(str('CONDA_ALWAYS_COPY'), str('True'))
+        monkeypatch.setenv('CONDA_ALWAYS_COPY', 'True')
 
     conf.env_dir = str(tmpdir.join("env"))
 
@@ -164,7 +164,7 @@ def test_matrix_expand_include():
     conf.include = [
         {'python': '3.5', 'b': '2'},
         {'sys_platform': sys.platform, 'python': '2.7', 'b': '3'},
-        {'sys_platform': sys.platform + 'nope', 'python': '2.7', 'b': '3'},
+        {'sys_platform': f'{sys.platform}nope', 'python': '2.7', 'b': '3'},
         {'environment_type': 'nope', 'python': '2.7', 'b': '4'},
         {'environment_type': 'something', 'python': '2.7', 'b': '5'},
     ]
@@ -415,9 +415,11 @@ def test_environment_select():
         assert items == [('conda', '1.9'), ('conda', PYTHON_VER1), ('virtualenv', PYTHON_VER1)]
 
         # Check specific python specifiers
-        environments = list(environment.get_environments(conf,
-                                                         ["conda:3.5",
-                                                          "virtualenv:" + PYTHON_VER1]))
+        environments = list(
+            environment.get_environments(
+                conf, ["conda:3.5", f"virtualenv:{PYTHON_VER1}"]
+            )
+        )
         items = sorted((env.tool_name, env.python) for env in environments)
         assert items == [('conda', '3.5'), ('virtualenv', PYTHON_VER1)]
 
@@ -428,9 +430,11 @@ def test_environment_select():
 
     # Check autodetect existing
     executable = os.path.relpath(os.path.abspath(sys.executable))
-    environments = list(environment.get_environments(conf, ["existing",
-                                                            ":same",
-                                                            ":" + executable]))
+    environments = list(
+        environment.get_environments(
+            conf, ["existing", ":same", f":{executable}"]
+        )
+    )
     assert len(environments) == 3
     for env in environments:
         assert env.tool_name == "existing"
@@ -450,7 +454,7 @@ def test_environment_select():
     # Check interaction with exclude
     conf.exclude = [{'environment_type': "conda"}]
     environments = list(environment.get_environments(conf, ["conda-py2.7-six1.10"]))
-    assert len(environments) == 0
+    assert not environments
 
     conf.exclude = [{'environment_type': 'matches nothing'}]
     environments = list(environment.get_environments(conf, ["conda-py2.7-six1.10"]))
@@ -466,22 +470,24 @@ def test_environment_select_autodetect():
     }
 
     # Check autodetect
-    environments = list(environment.get_environments(conf, [":" + PYTHON_VER1]))
+    environments = list(environment.get_environments(conf, [f":{PYTHON_VER1}"]))
     assert len(environments) == 1
     assert environments[0].python == PYTHON_VER1
     assert environments[0].tool_name in ("virtualenv", "conda")
 
     # Check interaction with exclude
     conf.exclude = [{'environment_type': 'matches nothing'}]
-    environments = list(environment.get_environments(conf, [":" + PYTHON_VER1]))
+    environments = list(environment.get_environments(conf, [f":{PYTHON_VER1}"]))
     assert len(environments) == 1
 
     conf.exclude = [{'environment_type': 'virtualenv|conda'}]
-    environments = list(environment.get_environments(conf, [":" + PYTHON_VER1]))
+    environments = list(environment.get_environments(conf, [f":{PYTHON_VER1}"]))
     assert len(environments) == 1
 
     conf.exclude = [{'environment_type': 'conda'}]
-    environments = list(environment.get_environments(conf, ["conda:" + PYTHON_VER1]))
+    environments = list(
+        environment.get_environments(conf, [f"conda:{PYTHON_VER1}"])
+    )
     assert len(environments) == 1
 
 
@@ -627,11 +633,11 @@ def test_environment_environ_path(environment_type, tmpdir, monkeypatch):
     assert usersite_in_syspath == "False"
 
     # Check PYTHONPATH is ignored
-    monkeypatch.setenv(str('PYTHONPATH'), str(tmpdir))
+    monkeypatch.setenv('PYTHONPATH', str(tmpdir))
     output = env.run(['-c', 'import os; print(os.environ.get("PYTHONPATH", ""))'])
     assert output.strip() == ""
 
-    monkeypatch.setenv(str('ASV_PYTHONPATH'), str("Hello python path"))
+    monkeypatch.setenv('ASV_PYTHONPATH', "Hello python path")
     output = env.run(['-c', 'import os; print(os.environ["PYTHONPATH"])'])
     assert output.strip() == "Hello python path"
 
@@ -879,7 +885,7 @@ def test_environment_env_matrix():
         environments = list(environment.get_environments(conf, None))
 
         assert len(environments) == environ_count
-        assert len(set(e.dir_name for e in environments)) == build_count
+        assert len({e.dir_name for e in environments}) == build_count
 
 
 def test__parse_matrix():

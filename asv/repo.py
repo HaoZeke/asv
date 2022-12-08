@@ -79,10 +79,7 @@ class Repo:
         Returns the given branch name or the default branch name if branch is
         None or not specified.
         """
-        if branch is None:
-            return self._default_branch
-        else:
-            return branch
+        return self._default_branch if branch is None else branch
 
     def get_range_spec(self, commit_a, commit_b):
         """
@@ -203,9 +200,10 @@ class Repo:
 
         old_commits = set(old_commits)
 
-        items = []
-        for commit in set(commits).union(old_commits):
-            items.append((self.get_date(commit), commit))
+        items = [
+            (self.get_date(commit), commit)
+            for commit in set(commits).union(old_commits)
+        ]
         items.sort()
 
         # JS date

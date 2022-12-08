@@ -146,11 +146,7 @@ def run_benchmarks(benchmarks, env, results=None,
 
     """
 
-    if extra_params is None:
-        extra_params = {}
-    else:
-        extra_params = dict(extra_params)
-
+    extra_params = {} if extra_params is None else dict(extra_params)
     if quick:
         extra_params['number'] = 1
         extra_params['repeat'] = 1
@@ -216,11 +212,7 @@ def run_benchmarks(benchmarks, env, results=None,
     failed_benchmarks = set()
     failed_setup_cache = {}
 
-    if append_samples:
-        previous_result_keys = existing_results
-    else:
-        previous_result_keys = set()
-
+    previous_result_keys = existing_results if append_samples else set()
     benchmark_durations = {}
 
     log.info(f"Benchmarking {env.name}")
@@ -444,7 +436,7 @@ def fail_benchmark(benchmark, stderr='', errcode=1):
     if benchmark['params']:
         # Mark only selected parameter combinations skipped
         params = itertools.product(*benchmark['params'])
-        result = [None for idx in params]
+        result = [None for _ in params]
         samples = [None] * len(result)
         number = [None] * len(result)
     else:
@@ -589,11 +581,7 @@ def _run_benchmark_single_param(benchmark, spawner, param_idx,
 
     params_str = json.dumps(extra_params)
 
-    if cwd is None:
-        real_cwd = tempfile.mkdtemp()
-    else:
-        real_cwd = cwd
-
+    real_cwd = tempfile.mkdtemp() if cwd is None else cwd
     result_file = tempfile.NamedTemporaryFile(delete=False)
     try:
         result_file.close()
@@ -640,7 +628,7 @@ def _run_benchmark_single_param(benchmark, spawner, param_idx,
         if profile:
             with io.open(profile_path, 'rb') as profile_fd:
                 profile_data = profile_fd.read()
-            profile_data = profile_data if profile_data else None
+            profile_data = profile_data or None
         else:
             profile_data = None
 
@@ -680,7 +668,7 @@ class Spawner:
         cache_dir = tempfile.mkdtemp()
 
         env_vars = dict(os.environ)
-        env_vars.update(self.env.env_vars)
+        env_vars |= self.env.env_vars
 
         out, _, errcode = self.env.run(
             [BENCHMARK_RUN_SCRIPT, 'setup_cache',
@@ -695,14 +683,13 @@ class Spawner:
 
         if errcode == 0:
             return cache_dir, None
-        else:
-            util.long_path_rmtree(cache_dir, True)
-            out += f'\nasv: setup_cache failed (exit status {errcode})'
-            return None, out.strip()
+        util.long_path_rmtree(cache_dir, True)
+        out += f'\nasv: setup_cache failed (exit status {errcode})'
+        return None, out.strip()
 
     def run(self, name, params_str, profile_path, result_file_name, timeout, cwd):
         env_vars = dict(os.environ)
-        env_vars.update(self.env.env_vars)
+        env_vars |= self.env.env_vars
 
         out, _, errcode = self.env.run(
             [BENCHMARK_RUN_SCRIPT, 'run', os.path.abspath(self.benchmark_dir),
@@ -731,7 +718,7 @@ class ForkServer(Spawner):
         self.socket_name = os.path.join(self.tmp_dir, 'socket')
 
         env_vars = dict(os.environ)
-        env_vars.update(env.env_vars)
+        env_vars |= env.env_vars
 
         self.server_proc = env.run(
             [BENCHMARK_RUN_SCRIPT, 'run_server', self.benchmark_dir, self.socket_name],
@@ -744,9 +731,9 @@ class ForkServer(Spawner):
         self.stdout_reader_thread.start()
 
         # Wait for the socket to appear
-        while self.stdout_reader_thread.is_alive():
-            if os.path.exists(self.socket_name):
-                break
+        while self.stdout_reader_thread.is_alive() and not os.path.exists(
+            self.socket_name
+        ):
             time.sleep(0.05)
 
         if not os.path.exists(self.socket_name):
@@ -783,10 +770,7 @@ class ForkServer(Spawner):
         except Exception as exc:
             success = False
             out = "asv: benchmark runner crashed\n"
-            if isinstance(exc, util.UserError):
-                out += str(exc)
-            else:
-                out += traceback.format_exc()
+            out += str(exc) if isinstance(exc, util.UserError) else traceback.format_exc()
             out = out.rstrip()
 
         return success, out

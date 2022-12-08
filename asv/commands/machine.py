@@ -17,9 +17,7 @@ class Machine(Command):
 
         defaults = machine.Machine.get_defaults()
         for name, description in machine.Machine.fields:
-            parser.add_argument(
-                '--' + name, default=defaults[name],
-                help=description)
+            parser.add_argument(f'--{name}', default=defaults[name], help=description)
 
         parser.add_argument('--yes', default=False, action='store_true',
                             help="Accept all questions")
@@ -34,14 +32,14 @@ class Machine(Command):
 
     @classmethod
     def run(cls, **kwargs):
-        different = {}
         defaults = machine.Machine.get_defaults()
-        for key, val in defaults.items():
-            if kwargs.get(key) != val:
-                different[key] = kwargs.get(key)
-
+        different = {
+            key: kwargs.get(key)
+            for key, val in defaults.items()
+            if kwargs.get(key) != val
+        }
         use_defaults = kwargs['yes']
 
         machine.Machine.load(
-            force_interactive=(len(different) == 0),
-            use_defaults=use_defaults, **different)
+            force_interactive=not different, use_defaults=use_defaults, **different
+        )

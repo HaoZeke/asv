@@ -24,7 +24,7 @@ class Regressions(OutputPublisher):
         # it's easier to work with than the results directly
 
         regressions = []
-        revision_to_hash = dict((r, h) for h, r in revisions.items())
+        revision_to_hash = {r: h for h, r in revisions.items()}
 
         data_filter = _GraphDataFilter(conf, repo, revisions)
 
@@ -59,12 +59,12 @@ class Regressions(OutputPublisher):
             return
 
         # Select unique graph params
-        graph_params = {}
-        for name, value in graph.params.items():
-            if len(all_params[name]) > 1:
-                graph_params[name] = value
-
-        graph_path = graph.path + '.json'
+        graph_params = {
+            name: value
+            for name, value in graph.params.items()
+            if len(all_params[name]) > 1
+        }
+        graph_path = f'{graph.path}.json'
 
         # Check which ranges are a single commit
         for k, jump in enumerate(jumps):
@@ -120,11 +120,7 @@ class Regressions(OutputPublisher):
         entries = []
 
         for name, graph_path, graph_params, idx, last_value, best_value, jumps in data:
-            if '(' in name:
-                benchmark_name = name[:name.index('(')]
-            else:
-                benchmark_name = name
-
+            benchmark_name = name[:name.index('(')] if '(' in name else name
             benchmark = benchmarks[benchmark_name]
 
             if idx is not None:
@@ -134,7 +130,7 @@ class Regressions(OutputPublisher):
                 param_values, = itertools.islice(itertools.product(*benchmark['params']),
                                                  idx, idx + 1)
                 for k, v in zip(benchmark['param_names'], param_values):
-                    graph_params['p-' + k] = v
+                    graph_params[f'p-{k}'] = v
 
             for rev1, rev2, value1, value2 in jumps:
                 timestamps = (run_timestamps[benchmark_name, t]
@@ -171,8 +167,7 @@ class Regressions(OutputPublisher):
                     commit_a = revision_to_hash[rev1]
                     commit_b = revision_to_hash[rev2]
                     if 'github.com' in conf.show_commit_url:
-                        commit_url = (conf.show_commit_url + '../compare/' +
-                                      commit_a + "..." + commit_b)
+                        commit_url = f'{conf.show_commit_url}../compare/{commit_a}...{commit_b}'
                     else:
                         commit_url = conf.show_commit_url + commit_a
                     commit_ref = 'in commits <a href="{0}">{1}...{2}</a>'.format(commit_url,

@@ -51,10 +51,10 @@ class Rm(Command):
                 if single_benchmark is not None:
                     raise util.UserError("'benchmark' appears more than once")
                 single_benchmark = parts[1]
+            elif parts[0] in global_patterns:
+                raise util.UserError(
+                    f"'{parts[0]}' appears more than once")
             else:
-                if parts[0] in global_patterns:
-                    raise util.UserError(
-                        f"'{parts[0]}' appears more than once")
                 global_patterns[parts[0]] = parts[1]
 
         for result in iter_results(conf.results_dir):
@@ -68,10 +68,9 @@ class Rm(Command):
                     if not fnmatchcase(result.env.python, val):
                         found = False
                         break
-                else:
-                    if not fnmatchcase(result.params.get(key), val):
-                        found = False
-                        break
+                elif not fnmatchcase(result.params.get(key), val):
+                    found = False
+                    break
 
             if not found:
                 continue
@@ -96,9 +95,8 @@ class Rm(Command):
             if len(do) and do.lower()[0] != 'y':
                 sys.exit(0)
 
-        if single_benchmark is not None:
-            for result in files_to_remove:
+        for result in files_to_remove:
+            if single_benchmark is not None:
                 result.save(conf.results_dir)
-        else:
-            for result in files_to_remove:
+            else:
                 result.rm(conf.results_dir)

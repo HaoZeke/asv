@@ -39,7 +39,7 @@ class BuildCache:
         Get the cache dir and timestamp file corresponding to a given commit hash.
         """
         path = os.path.join(self._path, commit_hash)
-        stamp = path + ".timestamp"
+        stamp = f"{path}.timestamp"
         return path, stamp
 
     def _remove_cache_dir(self, commit_hash):

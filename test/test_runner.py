@@ -192,7 +192,7 @@ def test_quick(benchmarks_fixture):
 
 def test_skip_param_selection():
     d = {'repo': 'foo'}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     conf = config.Config.from_json(d)
 
     class DummyEnv:
@@ -236,7 +236,7 @@ def test_forkserver(tmpdir):
     shutil.copytree(BENCHMARK_DIR, 'benchmark')
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = 'None'
@@ -296,7 +296,7 @@ def test_forkserver_preimport(tmpdir):
     os.makedirs('benchmark')
 
     d = {}
-    d.update(ASV_CONF_JSON)
+    d |= ASV_CONF_JSON
     d['env_dir'] = "env"
     d['benchmark_dir'] = 'benchmark'
     d['repo'] = 'None'

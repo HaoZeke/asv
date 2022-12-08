@@ -414,9 +414,7 @@ def detect_steps(y, w=None):
     if w is None:
         w_filtered = [1] * len(y_filtered)
     else:
-        # Fill-in and normalize weights
-        w_valid = [ww for ww in w if ww is not None and ww == ww]
-        if w_valid:
+        if w_valid := [ww for ww in w if ww is not None and ww == ww]:
             w_median = median(w_valid)
             if w_median == 0:
                 w_median = 1.0
@@ -774,11 +772,7 @@ def solve_potts_approx(y, w, gamma=None, min_size=1, **kw):
         dist = mu_dist.dist
         gamma = 3 * dist(0, n - 1) * math.log(n) / n
 
-    if min_size < 10:
-        max_size = 20
-    else:
-        max_size = min_size + 50
-
+    max_size = 20 if min_size < 10 else min_size + 50
     right, values, dists = solve_potts(y, w, gamma, min_size=min_size, max_size=max_size, **kw)
     return merge_pieces(gamma, right, values, dists, mu_dist, max_size=max_size)
 
@@ -905,10 +899,7 @@ class L1Dist:
 
 
 def get_mu_dist(y, w):
-    if _rangemedian is not None:
-        return _rangemedian.RangeMedian(y, w)
-    else:
-        return L1Dist(y, w)
+    return L1Dist(y, w) if _rangemedian is None else _rangemedian.RangeMedian(y, w)
 
 
 def rolling_median_dev(items):
@@ -998,10 +989,7 @@ def golden_search(f, a, b, xatol=1e-6, ftol=1e-8, expand_bounds=False):
 
     f0 = max(abs(f1), abs(f2))
 
-    while True:
-        if abs(x0 - x3) < xatol or abs(f1 - f2) < ftol * f0:
-            break
-
+    while abs(x0 - x3) >= xatol and abs(f1 - f2) >= ftol * f0:
         if f2 < f1:
             x0 = x1
             x1 = x2
@@ -1015,10 +1003,7 @@ def golden_search(f, a, b, xatol=1e-6, ftol=1e-8, expand_bounds=False):
             f2 = f1
             f1 = f(x1)
 
-    if f2 < f1:
-        return x2
-    else:
-        return x1
+    return x2 if f2 < f1 else x1
 
 
 def _plot_potts(x, sol):

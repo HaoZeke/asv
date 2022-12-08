@@ -19,10 +19,10 @@ def test_update_simple(monkeypatch, generate_result_dir):
                     os.path.join(basedir, 'asv-machine.json'))
     machine_file = 'asv-machine.json'
 
-    conf_values = {}
-    for key in ['results_dir', 'html_dir', 'repo', 'project', 'branches']:
-        conf_values[key] = getattr(conf, key)
-
+    conf_values = {
+        key: getattr(conf, key)
+        for key in ['results_dir', 'html_dir', 'repo', 'project', 'branches']
+    }
     util.write_json(os.path.join(basedir, 'asv.conf.json'), conf_values,
                     api_version=1)
 
@@ -32,7 +32,7 @@ def test_update_simple(monkeypatch, generate_result_dir):
     result_fns = [fn for fn in sorted(os.listdir(machine_dir))
                   if fn != 'machine.json']
     long_result_fn = 'abbacaca-' + 'a' * 128 + '.json'
-    hash_result_fn = ('abbacaca-env-' + hashlib.md5(b'a' * 128).hexdigest() + '.json')
+    hash_result_fn = f"abbacaca-env-{hashlib.md5(b'a' * 128).hexdigest()}.json"
 
     shutil.copyfile(os.path.join(machine_dir, result_fns[0]),
                     os.path.join(machine_dir, long_result_fn))

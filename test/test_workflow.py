@@ -44,15 +44,24 @@ def test_run_publish(capfd, basic_conf_2):
     assert isfile(join(tmpdir, 'html', 'asv.css'))
 
     # Check parameterized test json data format
-    filename = glob.glob(join(tmpdir, 'html', 'graphs', 'arch-x86_64',
-                              'asv_dummy_test_package_1',
-                              'asv_dummy_test_package_2-' + tools.DUMMY2_VERSIONS[1],
-                              'branch-master',
-                              'cpu-Blazingly fast',
-                              'env-SOME_TEST_VAR-1',
-                              'machine-orangutan',
-                              'os-GNU_Linux', 'python-*', 'ram-128GB',
-                              'params_examples.time_skip.json'))[0]
+    filename = glob.glob(
+        join(
+            tmpdir,
+            'html',
+            'graphs',
+            'arch-x86_64',
+            'asv_dummy_test_package_1',
+            f'asv_dummy_test_package_2-{tools.DUMMY2_VERSIONS[1]}',
+            'branch-master',
+            'cpu-Blazingly fast',
+            'env-SOME_TEST_VAR-1',
+            'machine-orangutan',
+            'os-GNU_Linux',
+            'python-*',
+            'ram-128GB',
+            'params_examples.time_skip.json',
+        )
+    )[0]
     with open(filename, 'r') as fp:
         data = json.load(fp)
         assert len(data) == 2
@@ -80,7 +89,7 @@ def test_run_publish(capfd, basic_conf_2):
     # Check EXISTING and --environment work
     python = "{0[0]}.{0[1]}".format(sys.version_info)
     env_type = tools.get_default_environment_type(conf, python)
-    env_spec = ("-E", env_type + ":" + python)
+    env_spec = "-E", f"{env_type}:{python}"
     tools.run_asv_with_conf(conf, 'run', "EXISTING", '--quick',
                             '--bench=time_secondary.track_value',
                             *env_spec,

@@ -79,7 +79,7 @@ except ImportError:
 
 
 try:
-    util.which('python{}'.format(PYTHON_VER2))
+    util.which(f'python{PYTHON_VER2}')
     HAS_PYTHON_VER2 = True
 except (RuntimeError, IOError):
     HAS_PYTHON_VER2 = False
@@ -142,11 +142,7 @@ def run_asv_with_conf(conf, *argv, **kwargs):
     parser, subparsers = commands.make_argparser()
     args = parser.parse_args(argv)
 
-    if sys.version_info[0] >= 3:
-        cls = args.func.__self__
-    else:
-        cls = args.func.im_self
-
+    cls = args.func.__self__ if sys.version_info[0] >= 3 else args.func.im_self
     return cls.run_from_conf_args(conf, args, **kwargs)
 
 
@@ -162,10 +158,7 @@ class Git:
         self._fake_date = datetime.datetime.now()
 
     def run_git(self, args, chdir=True, **kwargs):
-        if chdir:
-            cwd = self.path
-        else:
-            cwd = None
+        cwd = self.path if chdir else None
         kwargs['cwd'] = cwd
         return util.check_output(
             [self._git] + args, **kwargs)
@@ -281,8 +274,7 @@ class Hg:
         self.commit(commit_message)
 
     def get_hash(self, name):
-        log = self._repo.log(name.encode(self.encoding), limit=1)
-        if log:
+        if log := self._repo.log(name.encode(self.encoding), limit=1):
             return log[0][1].decode(self.encoding)
         return None
 
@@ -462,7 +454,6 @@ def generate_result_dir(tmpdir, dvcs, values, branches=None, updated=None):
     benchmark_version = sha256(os.urandom(16)).hexdigest()
 
     params = []
-    param_names = None
     for commit, value in values.items():
         if isinstance(value, dict):
             params = value["params"]
@@ -482,9 +473,7 @@ def generate_result_dir(tmpdir, dvcs, values, branches=None, updated=None):
                           value, started_at=updated, duration=1.0)
         result.save(result_dir)
 
-    if params:
-        param_names = ["param{}".format(k) for k in range(len(params))]
-
+    param_names = [f"param{k}" for k in range(len(params))] if params else None
     util.write_json(join(result_dir, "benchmarks.json"), {
         "time_func": {
             "name": "time_func",
@@ -543,7 +532,7 @@ def preview(base_path):
 
 
 def get_with_retry(browser, url):
-    for j in range(2):
+    for _ in range(2):
         try:
             return browser.get(url)
         except TimeoutException:
@@ -556,7 +545,7 @@ def _build_dummy_wheels(tmpdir, wheel_dir, to_build, build_conda=False):
     # Build fake wheels for testing
 
     for name, version in to_build:
-        build_dir = join(tmpdir, name + '-' + version)
+        build_dir = join(tmpdir, f'{name}-{version}')
         os.makedirs(build_dir)
 
         with open(join(build_dir, 'setup.py'), 'w') as f:
@@ -610,9 +599,14 @@ def _build_dummy_conda_pkg(name, version, build_dir, dst):
 
     for pyver in [PYTHON_VER1, PYTHON_VER2]:
         with _conda_lock():
-            subprocess.check_call([conda, 'build',
-                                   '--output-folder=' + dst,
-                                   '--no-anaconda-upload',
-                                   '--python=' + pyver,
-                                   '.'],
-                                  cwd=build_dir)
+            subprocess.check_call(
+                [
+                    conda,
+                    'build',
+                    f'--output-folder={dst}',
+                    '--no-anaconda-upload',
+                    f'--python={pyver}',
+                    '.',
+                ],
+                cwd=build_dir,
+            )

@@ -16,13 +16,11 @@ class TimeSuite:
 
     def time_example_benchmark_1(self):
         s = ''
-        for i in xrange(self.n):
-            s = s + 'x'
+        for _ in xrange(self.n):
+            s = f'{s}x'
 
     def time_example_benchmark_2(self):
-        s = []
-        for i in xrange(self.n):
-            s.append('x')
+        s = ['x' for _ in xrange(self.n)]
         ''.join(s)
 
 

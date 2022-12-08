@@ -55,9 +55,7 @@ class Benchmarks(dict):
                 self._benchmark_selection[benchmark['name']] = []
                 for idx, param_set in enumerate(
                         itertools.product(*benchmark['params'])):
-                    name = '%s(%s)' % (
-                        benchmark['name'],
-                        ', '.join(param_set))
+                    name = f"{benchmark['name']}({', '.join(param_set)})"
                     if not regex or any(re.search(reg, name) for reg in regex):
                         self[benchmark['name']] = benchmark
                         self._benchmark_selection[benchmark['name']].append(idx)
@@ -153,15 +151,13 @@ class Benchmarks(dict):
         #
 
         def iter_hashes():
-            for h in commit_hashes[:1]:
-                yield h
+            yield from commit_hashes[:1]
             for branch in conf.branches:
                 try:
                     yield repo.get_hash_from_name(branch)
                 except NoSuchNameError:
                     continue
-            for h in commit_hashes[1:]:
-                yield h
+            yield from commit_hashes[1:]
 
         def iter_unique(iter):
             seen = set()
@@ -326,7 +322,7 @@ class Benchmarks(dict):
         try:
             path = cls.get_benchmark_file_path(conf.results_dir)
             if not os.path.isfile(path):
-                raise util.UserError("Benchmark list file {} missing!".format(path))
+                raise util.UserError(f"Benchmark list file {path} missing!")
             d = util.load_json(path, api_version=cls.api_version)
             benchmarks = d.values()
             return cls(conf, benchmarks, regex=regex)
@@ -334,5 +330,6 @@ class Benchmarks(dict):
             if "asv update" in str(err):
                 # Don't give conflicting instructions
                 raise
-            raise util.UserError("{}\nUse `asv run --bench just-discover` to "
-                                 "regenerate benchmarks.json".format(str(err)))
+            raise util.UserError(
+                f"{str(err)}\nUse `asv run --bench just-discover` to regenerate benchmarks.json"
+            )

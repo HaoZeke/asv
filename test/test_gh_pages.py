@@ -12,9 +12,9 @@ from . import tools
 def test_gh_pages(rewrite, tmpdir, generate_result_dir, monkeypatch):
     tmpdir = os.path.abspath(str(tmpdir))
 
-    monkeypatch.setenv(str('EMAIL'), str('test@asv'))
-    monkeypatch.setenv(str('GIT_COMMITTER_NAME'), str('asv test'))
-    monkeypatch.setenv(str('GIT_AUTHOR_NAME'), str('asv test'))
+    monkeypatch.setenv('EMAIL', 'test@asv')
+    monkeypatch.setenv('GIT_COMMITTER_NAME', 'asv test')
+    monkeypatch.setenv('GIT_AUTHOR_NAME', 'asv test')
 
     conf, repo, commits = generate_result_dir([1, 2, 3, 4])
 
@@ -33,11 +33,7 @@ def test_gh_pages(rewrite, tmpdir, generate_result_dir, monkeypatch):
     dvcs.add('dummy')
     dvcs.commit('Initial commit')
 
-    if rewrite:
-        rewrite_args = ("--rewrite",)
-    else:
-        rewrite_args = ()
-
+    rewrite_args = ("--rewrite", ) if rewrite else ()
     # Check with no existing gh-pages branch, no push
     tools.run_asv_with_conf(conf, "gh-pages", "--no-push", *rewrite_args)
     dvcs.checkout('gh-pages')

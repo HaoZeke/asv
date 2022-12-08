@@ -22,6 +22,7 @@ internal commands:
       Run a Unix socket forkserver.
 """
 
+
 # !!!!!!!!!!!!!!!!!!!! NOTE !!!!!!!!!!!!!!!!!!!!
 # This file, unlike most others, must be compatible with as many
 # versions of Python as possible and have no dependencies outside of
@@ -33,11 +34,7 @@ internal commands:
 # sys.path[0] on start which can shadow other modules
 import sys
 
-if __name__ == "__main__":
-    _old_sys_path_head = sys.path.pop(0)
-else:
-    _old_sys_path_head = None
-
+_old_sys_path_head = sys.path.pop(0) if __name__ == "__main__" else None
 import copy
 import cProfile as profile
 import ctypes
@@ -170,18 +167,17 @@ def recvall(sock, size):
 
 
 def _get_attr(source, name, ignore_case=False):
-    if ignore_case:
-        attrs = [getattr(source, key) for key in dir(source)
-                 if key.lower() == name.lower()]
-
-        if len(attrs) > 1:
-            raise ValueError(f"{source.__name__} contains multiple {name} functions.")
-        elif len(attrs) == 1:
-            return attrs[0]
-        else:
-            return None
-    else:
+    if not ignore_case:
         return getattr(source, name, None)
+    attrs = [getattr(source, key) for key in dir(source)
+             if key.lower() == name.lower()]
+
+    if len(attrs) > 1:
+        raise ValueError(f"{source.__name__} contains multiple {name} functions.")
+    elif len(attrs) == 1:
+        return attrs[0]
+    else:
+        return None
 
 
 def _get_all_attrs(sources, name, ignore_case=False):
@@ -282,20 +278,13 @@ def check_num_args(root, benchmark_name, func, min_num_args, max_num_args=None):
     if inspect.ismethod(func):
         max_args -= 1
 
-    if info.defaults is not None:
-        min_args = max_args - len(info.defaults)
-    else:
-        min_args = max_args
-
+    min_args = max_args if info.defaults is None else max_args - len(info.defaults)
     if info.varargs is not None:
         max_args = math.inf
 
     ok = (min_args <= max_num_args) and (min_num_args <= max_args)
     if not ok:
-        if min_args == max_args:
-            args_str = min_args
-        else:
-            args_str = f"{min_args}-{max_args}"
+        args_str = min_args if min_args == max_args else f"{min_args}-{max_args}"
         if min_num_args == max_num_args:
             num_args_str = min_num_args
         else:
@@ -310,16 +299,14 @@ def check_num_args(root, benchmark_name, func, min_num_args, max_num_args=None):
 def _repr_no_address(obj):
     result = repr(obj)
     address_regex = re.compile(r'^(<.*) at (0x[\da-fA-F]*)(>)$')
-    match = address_regex.match(result)
-    if match:
-        suspected_address = match.group(2)
+    if match := address_regex.match(result):
+        suspected_address = match[2]
         # Double check this is the actual address
         default_result = object.__repr__(obj)
-        match2 = address_regex.match(default_result)
-        if match2:
-            known_address = match2.group(2)
+        if match2 := address_regex.match(default_result):
+            known_address = match2[2]
             if known_address == suspected_address:
-                result = match.group(1) + match.group(3)
+                result = match[1] + match[3]
 
     return result
 
@@ -361,18 +348,18 @@ class Benchmark:
         try:
             self.param_names = [str(x) for x in list(self.param_names)]
         except ValueError:
-            raise ValueError("%s.param_names is not a list of strings" % (name,))
+            raise ValueError(f"{name}.param_names is not a list of strings")
 
         try:
             self._params = list(self._params)
         except ValueError:
-            raise ValueError("%s.params is not a list" % (name,))
+            raise ValueError(f"{name}.params is not a list")
 
         if self._params and not isinstance(self._params[0], (tuple, list)):
             # Accept a single list for one parameter only
             self._params = [self._params]
         else:
-            self._params = [[item for item in entry] for entry in self._params]
+            self._params = [list(entry) for entry in self._params]
 
         if len(self.param_names) != len(self._params):
             self.param_names = self.param_names[:len(self._params)]
@@ -388,7 +375,7 @@ class Benchmark:
                 for j in range(len(param)):
                     name = param[j]
                     if name in dupe_dict:
-                        param[j] = name + f' ({dupe_dict[name]})'
+                        param[j] = f'{name} ({dupe_dict[name]})'
                         dupe_dict[name] += 1
                 self.params[i] = param
 
@@ -421,20 +408,28 @@ class Benchmark:
         max_num_args = min_num_args
 
         if self.setup_cache_key is not None:
-            ok = ok and check_num_args(root, self.name + ": setup_cache",
-                                       self._setup_cache, 0)
+            ok = ok and check_num_args(
+                root, f"{self.name}: setup_cache", self._setup_cache, 0
+            )
             max_num_args += 1
 
         for setup in self._setups:
-            ok = ok and check_num_args(root, self.name + ": setup",
-                                       setup, min_num_args, max_num_args)
+            ok = ok and check_num_args(
+                root, f"{self.name}: setup", setup, min_num_args, max_num_args
+            )
 
-        ok = ok and check_num_args(root, self.name + ": call",
-                                   self.func, min_num_args, max_num_args)
+        ok = ok and check_num_args(
+            root, f"{self.name}: call", self.func, min_num_args, max_num_args
+        )
 
         for teardown in self._teardowns:
-            ok = ok and check_num_args(root, self.name + ": teardown",
-                                       teardown, min_num_args, max_num_args)
+            ok = ok and check_num_args(
+                root,
+                f"{self.name}: teardown",
+                teardown,
+                min_num_args,
+                max_num_args,
+            )
 
         return ok
 
@@ -533,13 +528,7 @@ class TimeBenchmark(Benchmark):
     def run(self, *param):
         warmup_time = self.warmup_time
         if warmup_time < 0:
-            if '__pypy__' in sys.modules:
-                warmup_time = 1.0
-            else:
-                # Transient effects exist also on CPython, e.g. from
-                # OS scheduling
-                warmup_time = 0.1
-
+            warmup_time = 1.0 if '__pypy__' in sys.modules else 0.1
         timer = self._get_timer(*param)
 
         try:
@@ -840,9 +829,8 @@ def disc_modules(module_name, ignore_import_errors=False):
     yield module
 
     if getattr(module, '__path__', None):
-        for _, name, _ in pkgutil.iter_modules(module.__path__, module_name + '.'):
-            for item in disc_modules(name, ignore_import_errors=ignore_import_errors):
-                yield item
+        for _, name, _ in pkgutil.iter_modules(module.__path__, f'{module_name}.'):
+            yield from disc_modules(name, ignore_import_errors=ignore_import_errors)
 
 
 def disc_benchmarks(root, ignore_import_errors=False):
@@ -908,7 +896,7 @@ def get_benchmark_from_name(root, name, extra_params=None):
     # name
     parts = name.split('.')
     for i in [1, 2]:
-        path = os.path.join(root, *parts[:-i]) + '.py'
+        path = f'{os.path.join(root, *parts[:-i])}.py'
         if not os.path.isfile(path):
             continue
         modname = '.'.join([os.path.basename(root)] + parts[:-i])
@@ -965,10 +953,12 @@ def list_benchmarks(root, fp):
     for benchmark in disc_benchmarks(root):
         if not first:
             fp.write(', ')
-        clean = dict(
-            (k, v) for (k, v) in benchmark.__dict__.items()
-            if isinstance(v, (str, int, float, list, dict, bool)) and not
-            k.startswith('_'))
+        clean = {
+            k: v
+            for (k, v) in benchmark.__dict__.items()
+            if isinstance(v, (str, int, float, list, dict, bool))
+            and not k.startswith('_')
+        }
         json.dump(clean, fp, skipkeys=True)
         first = False
     fp.write(']')
@@ -1131,7 +1121,7 @@ def main_run_server(args):
                 # Import benchmark suite before forking.
                 # Capture I/O to a file during import.
                 with posix_redirect_output(stdout_file, permanent=False):
-                    for benchmark in disc_benchmarks(benchmark_dir, ignore_import_errors=True):
+                    for _ in disc_benchmarks(benchmark_dir, ignore_import_errors=True):
                         pass
 
                 # Report result
@@ -1297,9 +1287,9 @@ def main():
         sys.exit(1)
 
     mode = sys.argv[1]
-    args = sys.argv[2:]
-
     if mode in commands:
+        args = sys.argv[2:]
+
         commands[mode](args)
         sys.exit(0)
     else:

@@ -203,7 +203,7 @@ def test_rolling_median():
 
     datasets = [
         [1, 1, 10, 3, 5, 1, -16, -3, 4, 9],
-        [random.gauss(0, 1) for j in range(500)]
+        [random.gauss(0, 1) for _ in range(500)],
     ]
 
     for x in datasets:
@@ -226,8 +226,7 @@ def test_l1dist(use_rangemedian):
 
     def median_iter(y, w):
         if all(ww == w[0] for ww in w):
-            for m, d in rolling_median_dev(y):
-                yield m, d
+            yield from rolling_median_dev(y)
         else:
             for j in range(1, len(y) + 1):
                 m = step_detect.weighted_median(y[:j], w[:j])

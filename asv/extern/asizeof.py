@@ -185,11 +185,12 @@ downgrading Pympler to version 0.3.x.
 .. [#bi] ``Type``s and ``class``es are considered built-in if the
      ``__module__`` of the type or class is listed in the private
      ``_builtin_modules``.
-'''  # PYCHOK escape
-import sys
+'''
+
+  # PYCHOK escapeimport sys
 
 if sys.version_info < (2, 6, 0):
-    raise NotImplementedError('%s requires Python 2.6 or newer' % ('asizeof',))
+    raise NotImplementedError('asizeof requires Python 2.6 or newer')
 
 import types as Types
 import warnings
@@ -218,10 +219,7 @@ _sizeof_Clong  = calcsize('l')  # sizeof(long)
 _sizeof_Cvoidp = calcsize('P')  # sizeof(void*)
 
 # sizeof(long) != sizeof(ssize_t) on LLP64
-if _sizeof_Clong < _sizeof_Cvoidp:  # pragma: no coverage
-    _z_P_L = 'P'
-else:
-    _z_P_L = 'L'
+_z_P_L = 'P' if _sizeof_Clong < _sizeof_Cvoidp else 'L'
 
 
 def _calcsize(fmt):
@@ -292,34 +290,25 @@ _Type_type = type(type)  # == type and new-style class type
 # Compatibility functions for more uniform
 # behavior across Python version 2.2 thu 3+
 
-def _items(obj):  # dict only
+def _items(obj):    # dict only
     '''Return iter-/generator, preferably.
     '''
     o = getattr(obj, 'iteritems', obj.items)
-    if _callable(o):
-        return o()
-    else:
-        return o or ()
+    return o() if _callable(o) else o or ()
 
 
-def _keys(obj):  # dict only
+def _keys(obj):    # dict only
     '''Return iter-/generator, preferably.
     '''
     o = getattr(obj, 'iterkeys', obj.keys)
-    if _callable(o):
-        return o()
-    else:
-        return o or ()
+    return o() if _callable(o) else o or ()
 
 
-def _values(obj):  # dict only
+def _values(obj):    # dict only
     '''Return iter-/generator, preferably.
     '''
     o = getattr(obj, 'itervalues', obj.values)
-    if _callable(o):
-        return o()
-    else:
-        return o or ()
+    return o() if _callable(o) else o or ()
 
 
 try:  # callable() builtin
@@ -402,9 +391,7 @@ def _derive_typedef(typ):
     '''Return single, existing super type typedef or None.
     '''
     v = [v for v in _values(_typedefs) if _issubclass(typ, v.type)]
-    if len(v) == 1:
-        return v[0]
-    return None
+    return v[0] if len(v) == 1 else None
 
 
 def _dir2(obj, pref='', excl=(), slots=None, itor=''):
@@ -423,14 +410,13 @@ def _dir2(obj, pref='', excl=(), slots=None, itor=''):
             for c in type(obj).mro():
                 for a in getattr(c, slots, ()):
                     if a.startswith('__'):
-                        a = '_' + c.__name__ + a
+                        a = f'_{c.__name__}{a}'
                     if hasattr(obj, a):
                         s.setdefault(a, getattr(obj, a))
             # assume __slots__ tuple-like is holding the values
             # yield slots, _Slots(s)  # _keys(s) ... REMOVED,
             # see _Slots.__doc__ further below
-            for t in _items(s):
-                yield t  # attr name, value
+            yield from _items(s)
     elif itor:  # iterator referents
         for o in obj:  # iter(obj)
             yield itor, o
@@ -536,12 +522,11 @@ def _lengstr(obj):
     '''
     n = leng(obj)
     if n is None:  # no len
-        r = ''
+        return ''
     elif n > _len(obj):  # extended
-        r = ' leng %d!' % n
+        return ' leng %d!' % n
     else:
-        r = ' leng %d' % n
-    return r
+        return ' leng %d' % n
 
 
 def _moduleof(obj, dflt=''):
@@ -577,8 +562,7 @@ def _objs_opts_x(objs, all=None, **opts):
 def _p100(part, total, prec=1):
     '''Return percentage as string.
     '''
-    r = float(total)
-    if r:
+    if r := float(total):
         r = part * 100.0 / r
         return '%.*f%%' % (prec, r)
     return 'n/a'
@@ -587,11 +571,7 @@ def _p100(part, total, prec=1):
 def _plural(num):
     '''Return 's' if plural.
     '''
-    if num == 1:
-        s = ''
-    else:
-        s = 's'
-    return s
+    return '' if num == 1 else 's'
 
 
 def _power2(n):
@@ -656,7 +636,7 @@ def _repr(obj, clip=80):
     if len(r) > clip > 0:
         h = (clip // 2) - 2
         if h > 0:
-            r = r[:h] + '....' + r[-h:]
+            r = f'{r[:h]}....{r[-h:]}'
     return r
 
 
@@ -711,8 +691,8 @@ def _dict_refs(obj, named):
         if named:
             for k, v in _items(obj):
                 s = str(k)
-                yield _NamedRef('[K] ' + s, k)
-                yield _NamedRef('[V] ' + s + ': ' + _repr(v), v)
+                yield _NamedRef(f'[K] {s}', k)
+                yield _NamedRef(f'[V] {s}: {_repr(v)}', v)
         else:
             for k, v in _items(obj):
                 yield k
@@ -789,19 +769,14 @@ def _module_refs(obj, named):
     '''Return specific referents of a module object.
     '''
     # ignore this very module
-    if obj.__name__ == __name__:
-        return ()
-    # module is essentially a dict
-    return _dict_refs(obj.__dict__, named)
+    return () if obj.__name__ == __name__ else _dict_refs(obj.__dict__, named)
 
 
 def _namedtuple_refs(obj, named):
     '''Return specific referents of obj-as-sequence and slots but exclude dict.
     '''
-    for r in _refs(obj, named, '__class__', slots='__slots__'):
-        yield r
-    for r in obj:
-        yield r
+    yield from _refs(obj, named, '__class__', slots='__slots__')
+    yield from obj
 
 
 def _prop_refs(obj, named):
@@ -885,22 +860,13 @@ def _len_dict(obj):
     '''Dict length in items (estimate).
     '''
     n = len(obj)  # active items
-    if n < 6:  # ma_smalltable ...
-        n = 0  # ... in basicsize
-    else:  # at least one unused
-        n = _power2(n + 1)
-    return n
+    return 0 if n < 6 else _power2(n + 1)
 
 
 def _len_frame(obj):
     '''Length of a frame object.
     '''
-    c = getattr(obj, 'f_code', None)
-    if c:
-        n = _len_code(c)
-    else:
-        n = 0
-    return n
+    return _len_code(c) if (c := getattr(obj, 'f_code', None)) else 0
 
 
 _digit2p2 = 1 << (_sizeof_Cdigit << 3)
@@ -925,10 +891,7 @@ def _len_iter(obj):
     '''Length (hint) of an iterator.
     '''
     n = getattr(obj, '__length_hint__', None)
-    if n:
-        n = n()
-    else:  # try len()
-        n = _len(obj)
+    n = n() if n else _len(obj)
     return n
 
 
@@ -1016,12 +979,11 @@ class _Claskey:
     def __str__(self):
         r = str(self._obj)
         if r.endswith('>'):
-            r = '%s%s def>' % (r[:-1], self._sty)
+            return f'{r[:-1]}{self._sty} def>'
         elif self._sty is _old_style and not r.startswith('class '):
-            r = 'class %s%s def' % (r, self._sty)
+            return f'class {r}{self._sty} def'
         else:
-            r = '%s%s def' % (r, self._sty)
-        return r
+            return f'{r}{self._sty} def'
     __repr__ = __str__
 
 
@@ -1193,10 +1155,7 @@ class _Typedef:
     def dup(self, other=None, **kwds):
         '''Duplicate attributes of dict or other typedef.
         '''
-        if other is None:
-            d = _dict_typedef.kwds()
-        else:
-            d = other.kwds()
+        d = _dict_typedef.kwds() if other is None else other.kwds()
         d.update(kwds)
         self.reset(**d)
 
@@ -1218,14 +1177,12 @@ class _Typedef:
     def format(self):
         '''Return format dict.
         '''
-        i = self.item
-        if self.vari:
-            i = 'var'
+        i = 'var' if self.vari else self.item
         c = n = ''
         if not self.both:
             c = ' (code only)'
         if self.leng:
-            n = ' (%s)' % _nameof(self.leng)
+            n = f' ({_nameof(self.leng)})'
         return dict(base=self.base, item=i, leng=n, code=c,
                     kind=self.kind)
 
@@ -1244,10 +1201,7 @@ class _Typedef:
         if k and k not in _typedefs:  # instance key
             _typedefs[k] = self
             if c and c not in _typedefs:  # class key
-                if t.__module__ in _builtin_modules:
-                    k = _kind_ignored  # default
-                else:
-                    k = self.kind
+                k = _kind_ignored if t.__module__ in _builtin_modules else self.kind
                 _typedefs[c] = _Typedef(base=_basicsize(type(t), base=base, heap=heap),
                                         refs=_type_refs,
                                         both=False, kind=k, type=t)
@@ -1366,10 +1320,7 @@ try:
     from array import array  # array type
 
     def _array_kwds(obj):
-        if hasattr(obj, 'itemsize'):
-            v = 'itemsize'
-        else:
-            v = _Not_vari
+        v = 'itemsize' if hasattr(obj, 'itemsize') else _Not_vari
         # since item size varies by the array data type, set
         # itemsize to 1 byte and use _len_array in bytes; note,
         # function itemsize returns the actual size in bytes
@@ -1654,7 +1605,7 @@ for t in s:
 del i, s, t
 
 
-def _typedef(obj, derive=False, frames=False, infer=False):  # MCCABE 25
+def _typedef(obj, derive=False, frames=False, infer=False):    # MCCABE 25
     '''Create a new typedef for an object.
     '''
     t = type(obj)
@@ -1719,8 +1670,7 @@ def _typedef(obj, derive=False, frames=False, infer=False):  # MCCABE 25
         v.set(kind=_kind_ignored)
     else:  # assume an instance of some class
         if derive:
-            p = _derive_typedef(t)
-            if p:  # duplicate parent
+            if p := _derive_typedef(t):
                 v.dup(other=p, kind=_kind_derived)
                 return v
         if _issubclass(t, Exception):
@@ -1746,13 +1696,13 @@ class _Prof:
     weak   = False  # objref is weakref(obj)
 
     def __cmp__(self, other):
-        if self.total < other.total:
+        if (
+            self.total < other.total
+            or self.total <= other.total
+            and self.number < other.number
+        ):
             return -1
-        elif self.total > other.total:
-            return +1
-        elif self.number < other.number:
-            return -1
-        elif self.number > other.number:
+        elif self.total > other.total or self.number > other.number:
             return +1
         return 0
 
@@ -1818,14 +1768,8 @@ class _Rank:
         o = self.objref
         if self.weak:
             o = o()
-        if self.deep > 0:
-            d = ' (at %s)' % (self.deep,)
-        else:
-            d = ''
-        if self.pid:
-            p = ', pix %s' % (id2x.get(self.pid, '?'),)
-        else:
-            p = ''
+        d = f' (at {self.deep})' if self.deep > 0 else ''
+        p = f", pix {id2x.get(self.pid, '?')}" if self.pid else ''
         return '%s: %s%s, ix %d%s%s' % (_prepr(self.key, clip=clip),
                _repr(o, clip=clip), _lengstr(o), id2x[self.id], d, p)
 
@@ -1886,18 +1830,22 @@ class Asized:
         if depth and self.refs:
             rs = sorted(self.refs, key=lambda x: getattr(x, order_by),
                                    reverse=order_by in ('size', 'flat'))
-            rs = [r.format(format=format, depth=depth-1, order_by=order_by,
-                           indent=indent+'    ') for r in rs]
+            rs = [
+                r.format(
+                    format=format,
+                    depth=depth - 1,
+                    order_by=order_by,
+                    indent=f'{indent}    ',
+                )
+                for r in rs
+            ]
             t = '\n'.join([t] + rs)
         return t
 
     def get(self, name, dflt=None):
         '''Return the named referent (or *dflt* if not found).
         '''
-        for ref in self.refs:
-            if name == ref.name:
-                return ref
-        return dflt
+        return next((ref for ref in self.refs if name == ref.name), dflt)
 
 
 class Asizer:
@@ -2180,7 +2128,7 @@ class Asizer:
     def duplicate(self):
         '''Get the number of duplicate objects seen so far (int).
         '''
-        return sum(1 for v in _values(self._seen) if v > 1)  # == len
+        return sum(v > 1 for v in _values(self._seen))
 
     def exclude_objs(self, *objs):
         '''Exclude the specified objects from sizing, profiling and ranking.
@@ -2226,7 +2174,7 @@ class Asizer:
     def ignored(self):
         '''Ignore certain types (bool).
         '''
-        return True if self._ign_d else False
+        return bool(self._ign_d)
 
     @property
     def infer(self):
@@ -2263,7 +2211,7 @@ class Asizer:
         if n > 0 and s > 0:
             self._printf('%s%*d largest object%s (of %d over %d bytes%s)', linesep,
                           w, n, _plural(n), self._ranked, s, _SI(s), **print3options)
-            id2x = dict((r.id, i) for i, r in enumerate(self._ranks))
+            id2x = {r.id: i for i, r in enumerate(self._ranks)}
             for r in self._ranks[:n]:
                 s, t = r.size, r.format(self._clip_, id2x)
                 self._printf('%*d bytes%s: %s', w, s, _SI(s), t, **print3options)
@@ -2402,17 +2350,16 @@ class Asizer:
                 *print3options* -- some keyword arguments, like Python 3+ print
         '''
         for k in _all_kinds:
-            # XXX Python 3+ doesn't sort type objects
-            t = [(self._prepr(a), v) for a, v in _items(_typedefs)
-                                      if v.kind == k and (v.both or self._code_)]
-            if t:
+            if t := [
+                (self._prepr(a), v)
+                for a, v in _items(_typedefs)
+                if v.kind == k and (v.both or self._code_)
+            ]:
                 self._printf('%s%*d %s type%s:  basicsize, itemsize, _len_(), _refs()',
                              linesep, w, len(t), k, _plural(len(t)), **print3options)
                 for a, v in sorted(t):
                     self._printf('%*s %s:  %s', w, '', a, v, **print3options)
-        # dict and dict-like classes
-        t = sum(len(v) for v in _values(_dict_classes))
-        if t:
+        if t := sum(len(v) for v in _values(_dict_classes)):
             self._printf('%s%*d dict/-like classes:', linesep, w, t, **print3options)
             for m, v in _items(_dict_classes):
                 self._printf('%*s %s:  %s', w, '', m, self._prepr(v), **print3options)
@@ -2472,10 +2419,7 @@ class Asizer:
         self._limit_ = limit
         self._stats_ = stats
         self._stream = stream
-        if ignored:
-            self._ign_d = _kind_ignored
-        else:
-            self._ign_d = None
+        self._ign_d = _kind_ignored if ignored else None
         # clear state
         self._clear()
         self.set(align=align, code=code, cutoff=cutoff, stats=stats)
@@ -2544,7 +2488,7 @@ class Asizer:
     def sized(self):
         '''Get the number objects sized so far (int).
         '''
-        return sum(1 for v in _values(self._seen) if v > 0)
+        return sum(v > 0 for v in _values(self._seen))
 
     @property
     def stats(self):
@@ -2853,12 +2797,12 @@ def named_refs(obj, **opts):
     v = _typedefof(obj, **opts)
     if v:
         v = v.refs
-        if v and _callable(v):
-            for r in v(obj, True):
-                try:
-                    rs.append((r.name, r.ref))
-                except AttributeError:
-                    pass
+    if v and _callable(v):
+        for r in v(obj, True):
+            try:
+                rs.append((r.name, r.ref))
+            except AttributeError:
+                pass
     return rs
 
 
@@ -2870,8 +2814,8 @@ def refs(obj, **opts):
     v = _typedefof(obj, **opts)
     if v:
         v = v.refs
-        if v and _callable(v):
-            v = v(obj, False)
+    if v and _callable(v):
+        v = v(obj, False)
     return v
 
 
@@ -2879,9 +2823,9 @@ if __name__ == '__main__':
 
     if '-v' in sys.argv:
         import platform
-        print('%s %s (Python %s %s)' % (__file__, __version__,
-                                        sys.version.split()[0],
-                                        platform.architecture()[0]))
+        print(
+            f'{__file__} {__version__} (Python {sys.version.split()[0]} {platform.architecture()[0]})'
+        )
 
     elif '-types' in sys.argv:  # print static _typedefs
         n = len(_typedefs)

@@ -14,7 +14,7 @@ def test_continuous(capfd, basic_conf_2):
 
     python = "{0[0]}.{0[1]}".format(sys.version_info)
     env_type = get_default_environment_type(conf, python)
-    env_spec = ("-E", env_type + ":" + python)
+    env_spec = "-E", f"{env_type}:{python}"
 
     # Check that asv continuous runs
     tools.run_asv_with_conf(conf, 'continuous', "master^", '--show-stderr',
