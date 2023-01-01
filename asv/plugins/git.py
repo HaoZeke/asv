@@ -51,10 +51,7 @@ class Git(Repo):
                 return True
 
         # Check for a local path
-        if cls.is_local_repo(url):
-            return True
-
-        return False
+        return bool(cls.is_local_repo(url))
 
     def _run_git(self, args, cwd=True, **kwargs):
         if cwd is True:
@@ -140,7 +137,7 @@ class Git(Repo):
             raise
 
     def get_hash_from_parent(self, name):
-        return self.get_hash_from_name(name + '^')
+        return self.get_hash_from_name(f'{name}^')
 
     def get_name_from_hash(self, commit):
         try:
@@ -154,18 +151,20 @@ class Git(Repo):
             # Failed to obtain.
             return None
 
-        # Return tags without prefix
-        for prefix in ['tags/']:
-            if name.startswith(prefix):
-                return name[len(prefix):]
-
-        return name
+        return next(
+            (
+                name[len(prefix) :]
+                for prefix in ['tags/']
+                if name.startswith(prefix)
+            ),
+            name,
+        )
 
     def get_tags(self):
-        tags = {}
-        for tag in self._run_git(["tag", "-l"]).splitlines():
-            tags[tag] = self._run_git(["rev-list", "-n", "1", tag]).strip()
-        return tags
+        return {
+            tag: self._run_git(["rev-list", "-n", "1", tag]).strip()
+            for tag in self._run_git(["tag", "-l"]).splitlines()
+        }
 
     def get_date_from_name(self, name):
         return self.get_date(name + "^{commit}")
@@ -174,10 +173,17 @@ class Git(Repo):
         return self.get_hashes_from_range(self.get_branch_name(branch))
 
     def get_revisions(self, commits):
-        revisions = {}
-        for i, commit in enumerate(self._run_git([
-            "rev-list", "--all", "--date-order", "--reverse",
-        ]).splitlines()):
-            if commit in commits:
-                revisions[commit] = i
-        return revisions
+        return {
+            commit: i
+            for i, commit in enumerate(
+                self._run_git(
+                    [
+                        "rev-list",
+                        "--all",
+                        "--date-order",
+                        "--reverse",
+                    ]
+                ).splitlines()
+            )
+            if commit in commits
+        }
