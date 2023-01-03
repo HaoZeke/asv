@@ -146,6 +146,7 @@ class Virtualenv(environment.Environment):
         env.update(self.build_env_vars)
 
         self._run_pip(pip_args, env=env)
+        self._run_pip(['install', 'Pympler'], env=env)
 
         if self._requirements:
             args = ['install', '-v', '--upgrade']
