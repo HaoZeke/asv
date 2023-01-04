@@ -32,12 +32,6 @@ internal commands:
 # there although it's not part of the package, and Python puts it to
 # sys.path[0] on start which can shadow other modules
 import sys
-
-if __name__ == "__main__":
-    _old_sys_path_head = sys.path.pop(0)
-else:
-    _old_sys_path_head = None
-
 import copy
 import cProfile as profile
 import ctypes
@@ -705,10 +699,13 @@ class MemBenchmark(Benchmark):
         self.unit = "bytes"
 
     def run(self, *param):
-        if not ON_PYPY:
+        if ON_PYPY:
             raise UserWarning("asizeof doesn't work on pypy")
             return
-        from pympler.asizeof import asizeof
+        try:
+            from pympler.asizeof import asizeof
+        except ImportError:
+            raise UserWarning("pympler not found, memory benchmarks shall fail")
         obj = self.func(*param)
 
         sizeof2 = asizeof([obj, obj])
@@ -1227,10 +1224,6 @@ def main_timing(argv):
     import asv.statistics
     import asv.util
     import asv.console
-
-    if (_old_sys_path_head is not None and
-            os.path.abspath(_old_sys_path_head) != os.path.abspath(os.path.dirname(__file__))):
-        sys.path.insert(0, _old_sys_path_head)
 
     parser = argparse.ArgumentParser(usage="python -masv.benchmark timing [options] STATEMENT")
     parser.add_argument("--setup", action="store", default=(lambda: None))

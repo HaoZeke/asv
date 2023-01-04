@@ -141,7 +141,7 @@ class Conda(environment.Environment):
         if not self._conda_environment_file:
             # The user-provided env file is assumed to set the python version
             conda_args = ['python={0}'.format(self._python),
-                          'wheel', 'pip', 'Pympler'] + conda_args
+                          'wheel', 'pip'] + conda_args
 
         # Create a temporary environment.yml file
         # and use that to generate the env for benchmarking.
