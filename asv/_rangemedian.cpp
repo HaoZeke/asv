@@ -399,11 +399,12 @@ PyObject *PyInit__rangemedian(void)
 
     m = PyModule_Create(&moduledef);
     if (m == NULL) {
-        return NULL;
+        return -1;
     }
 
     if (RangeMedian_init_type(m) == NULL) {
-        return NULL;
+        Py_DECREF(m);
+        return -1;
     }
 
     return m;
