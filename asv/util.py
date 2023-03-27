@@ -1389,3 +1389,55 @@ def git_default_branch():
     except ProcessError:
         default_branch = 'master'
     return default_branch
+
+
+def extract_fields(data):
+    fields = {}
+
+    fields['_results'] = data[0]
+    fields['_benchmark_params'] = data[1]
+    fields['_benchmark_version'] = data[2]
+    fields['_started_at'] = data[3]
+    fields['_duration'] = data[4]
+    fields['ci_99_a'] = data[5]
+    fields['ci_99_b'] = data[6]
+    fields['q_25'] = data[7]
+    fields['q_75'] = data[8]
+    fields['number'] = data[9]
+    fields['repeat'] = data[10]
+
+    return fields
+
+
+def get_results(dat_dict):
+    all_bench_res = []
+    for key in dat_dict.keys():
+        cur_bench = extract_fields(dat_dict.get(key))
+        cur_bench['name'] = key
+        all_bench_res.append(cur_bench)
+    return all_bench_res
+
+def extract_fields(data):
+    fields = {}
+
+    fields['_results'] = data[0]
+    fields['_benchmark_params'] = data[1]
+    fields['_benchmark_version'] = data[2]
+    fields['_started_at'] = data[3]
+    fields['_duration'] = data[4]
+    fields['ci_99_a'] = data[5]
+    fields['ci_99_b'] = data[6]
+    fields['q_25'] = data[7]
+    fields['q_75'] = data[8]
+    fields['number'] = data[9]
+    fields['repeat'] = data[10]
+
+    return fields
+
+def get_results(dat_dict):
+    all_bench_res = []
+    for key in dat_dict.keys():
+        cur_bench = extract_fields(dat_dict.get(key))
+        cur_bench['name'] = key
+        all_bench_res.append(cur_bench)
+    return all_bench_res
