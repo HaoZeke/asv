@@ -6,7 +6,6 @@ of dependencies.
 """
 
 
-import hashlib
 import os
 import re
 import sys
@@ -14,6 +13,8 @@ import itertools
 import subprocess
 import importlib
 from pathlib import Path
+
+import xxhash
 
 from .console import log
 from . import util, build_cache
@@ -651,7 +652,7 @@ class Environment:
         """
         Get a hash to uniquely identify this environment.
         """
-        return hashlib.md5(self.name.encode('utf-8')).hexdigest()
+        return xxhash.xxh64(self.name.encode('utf-8')).hexdigest()
 
     @property
     def dir_name(self):
@@ -665,7 +666,7 @@ class Environment:
                             self._requirements,
                             self._tagged_env_vars,
                             build=True)
-        return hashlib.md5(name.encode('utf-8')).hexdigest()
+        return xxhash.xxh64(name.encode('utf-8')).hexdigest()
 
     @property
     def requirements(self):
