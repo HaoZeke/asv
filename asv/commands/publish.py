@@ -5,9 +5,8 @@ import os
 import shutil
 from collections import defaultdict
 
-from importlib_metadata import version as get_version
-
 from asv import _stats, util
+from asv._metadata import get_version
 from asv.benchmarks import Benchmarks
 from asv.commands import Command
 from asv.console import log
