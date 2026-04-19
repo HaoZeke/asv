@@ -10,10 +10,11 @@ from ..benchmarks import Benchmarks
 from ..console import log
 from ..graph import GraphSet
 from ..machine import iter_machine_files
+from ..publishing import OutputPublisher
+from asv._metadata import get_version
 from ..repo import get_repo
 from ..results import iter_results
-from ..publishing import OutputPublisher
-from .. import statistics, util, __version__
+from .. import statistics, util
 
 
 def check_benchmark_params(name, benchmark):
@@ -281,7 +282,7 @@ class Publish(Command):
         }, compact=True)
 
         util.write_json(os.path.join(conf.html_dir, "info.json"), {
-            'asv-version': __version__,
+            'asv-version': get_version("asv"),
             'timestamp': util.datetime_to_js_timestamp(
                 datetime.datetime.now(datetime.timezone.utc)
             )

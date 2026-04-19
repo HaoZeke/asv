@@ -5,7 +5,8 @@ import math
 import multiprocessing
 import argparse
 
-from .. import __version__, util
+from asv._metadata import get_version
+from .. import util
 
 
 def add_global_arguments(parser, suppress_defaults=True):
@@ -29,7 +30,7 @@ def add_global_arguments(parser, suppress_defaults=True):
         default=(argparse.SUPPRESS if suppress_defaults else 'asv.conf.json'))
 
     parser.add_argument(
-        "--version", action="version", version="%(prog)s " + __version__,
+        "--version", action="version", version="%(prog)s " + get_version("asv"),
         help="Print program version",
         **suppressor)
 
