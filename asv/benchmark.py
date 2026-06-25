@@ -25,12 +25,47 @@ internal commands:
 import os
 import sys
 
+from asv_runner.check import _check
 from asv_runner.discovery import _discover
 from asv_runner.run import _run
 from asv_runner.server import _run_server
+from asv_runner.setup_cache import _setup_cache as _setup_cache_impl
 from asv_runner.timing import _timing
-from asv_runner.setup_cache import _setup_cache
-from asv_runner.check import _check
+
+
+def _setup_cache(args):
+    """Run setup_cache, ensuring module-level setup() hooks run first (#1592).
+
+    Older asv_runner releases omit setups inside ``do_setup_cache``. Patch the
+    method on the discovered benchmark class for this process so pandas-style
+    module ``setup(*args, **kwargs)`` seed hooks apply during cache builds.
+    """
+    try:
+        from asv_runner.benchmarks._base import Benchmark
+    except ImportError:
+        return _setup_cache_impl(args)
+
+    original = Benchmark.do_setup_cache
+
+    def do_setup_cache_with_module_setup(self):
+        if self._setup_cache is None:
+            return None
+        import inspect
+        for setup in self._setups:
+            try:
+                sig = inspect.signature(setup)
+                # Bind with no positional args; skip if required params remain.
+                sig.bind()
+            except TypeError:
+                continue
+            setup()
+        return self._setup_cache()
+
+    Benchmark.do_setup_cache = do_setup_cache_with_module_setup
+    try:
+        return _setup_cache_impl(args)
+    finally:
+        Benchmark.do_setup_cache = original
 
 
 def _help(args):
@@ -67,6 +102,25 @@ def main():
 
     mode = sys.argv[1]
     args = sys.argv[2:]
+
+    env = os.environ.copy()
+    # --- Modify sys.path for the current interpreter ---
+    if 'ASV_PYTHONPATH' in env:
+        new_paths = env['ASV_PYTHONPATH'].split(os.pathsep)
+        for path in reversed(new_paths):  # Add to the front to prioritize
+            if path not in sys.path:
+                sys.path.insert(0, path)
+        # Remove ASV_PYTHONPATH from env, as it's no longer needed after sys.path update
+        env.pop('ASV_PYTHONPATH')
+    else:
+        # Clean up sys.path if PYTHONPATH was set but ASV_PYTHONPATH is not
+        if 'PYTHONPATH' in env:
+            old_paths = env['PYTHONPATH'].split(os.pathsep)
+            for path in old_paths:
+                if path in sys.path:
+                    sys.path.remove(path)
+
+            env.pop('PYTHONPATH')
 
     if mode in commands:
         commands[mode](args)
