@@ -424,8 +424,8 @@ def test_web_graph_hash_range_to_url(browser, basic_html):
 
         bounds = browser.execute_script(
             "var revs = Object.keys($.asv.main_json.revision_to_hash).map(Number);"
-            "var start = $.asv.get_revision(arguments[0]);"
-            "var end = $.asv.get_revision(arguments[1]);"
+            "var start = Number($.asv.get_revision(arguments[0]));"
+            "var end = Number($.asv.get_revision(arguments[1]));"
             "return [start, end, Math.min.apply(null, revs), Math.max.apply(null, revs)];",
             short_start,
             short_end,
