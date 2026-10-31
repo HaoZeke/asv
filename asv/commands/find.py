@@ -102,6 +102,9 @@ class Find(Command):
         launch_method=None,
         skip_save=False,
     ):
+        if launch_method is None:
+            launch_method = conf.launch_method or 'auto'
+
         params = {}
         machine_params = Machine.load(machine_name=machine, _path=_machine_file, interactive=True)
         params.update(machine_params.__dict__)
