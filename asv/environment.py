@@ -503,6 +503,25 @@ def is_existing_only(environments):
     return all(isinstance(env, ExistingEnvironment) for env in environments)
 
 
+def _is_dist_name(name):
+    return re.fullmatch(r"[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?", name) is not None
+
+
+def _canonical_dist_name(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _wheel_dist_name(wheel_file):
+    """
+    Distribution name of a wheel, from its file name
+    ``{distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl``.
+    """
+    name = os.path.basename(wheel_file).split('-')[0]
+    if _is_dist_name(name):
+        return name
+    return None
+
+
 class EnvironmentUnavailable(BaseException):
     pass
 
@@ -633,14 +652,16 @@ class Environment:
         else:
             self._global_env_vars['ASV_BUILD_CACHE_DIR'] = cache_dir
 
-    def _set_installed_commit_hash(self, commit_hash):
+    def _set_installed_commit_hash(self, commit_hash, distributions=()):
         # Save status
         install_checksum = self._get_install_checksum()
         hash_file = os.path.join(self._path, 'asv-install-status.json')
         data = {'commit_hash': commit_hash, 'install_checksum': install_checksum}
+        if distributions:
+            data['distributions'] = list(distributions)
         util.write_json(hash_file, data, api_version=1)
 
-    def _get_installed_commit_hash(self):
+    def _load_install_status(self):
         hash_file = os.path.join(self._path, 'asv-install-status.json')
 
         data = {}
@@ -649,6 +670,10 @@ class Environment:
                 data = util.load_json(hash_file, api_version=1)
             except util.UserError:
                 pass
+        return data
+
+    def _get_installed_commit_hash(self):
+        data = self._load_install_status()
 
         # If configuration changed, force reinstall
         install_checksum = self._get_install_checksum()
@@ -656,6 +681,14 @@ class Environment:
             return None
 
         return data.get('commit_hash', None)
+
+    def _get_installed_distributions(self):
+        """
+        Distribution names of the wheel last installed into the environment,
+        independent of whether the configuration has changed since.
+        """
+        names = self._load_install_status().get('distributions', [])
+        return [name for name in names if isinstance(name, str) and _is_dist_name(name)]
 
     def _get_install_checksum(self):
         return [
@@ -886,21 +919,30 @@ class Environment:
             kwargs[interp_key] = value
 
         # There is an additional {wheel_file} interpolation variable
-        if 'build_cache_dir' in kwargs:
-            cache_dir = kwargs['build_cache_dir']
-
-            if os.path.isdir(cache_dir):
-                files = os.listdir(cache_dir)
-                wheels = [fn for fn in files if fn.lower().endswith('.whl')]
-                if len(wheels) == 1:
-                    kwargs['wheel_file'] = os.path.join(cache_dir, wheels[0])
-                if len(wheels) > 1:
-                    raise util.UserError(
-                        f"Found multiple wheels in f{cache_dir}. Cannot decide correct one"
-                    )
+        wheel_file = self._get_wheel_file()
+        if wheel_file is not None:
+            kwargs['wheel_file'] = wheel_file
 
         # Interpolate, and raise useful error message if it fails
         return [util.interpolate_command(c, kwargs) for c in commands]
+
+    def _get_wheel_file(self):
+        """
+        The single ``*.whl`` file in the build cache directory, or None.
+        """
+        cache_dir = self._global_env_vars.get('ASV_BUILD_CACHE_DIR')
+        if cache_dir is None or not os.path.isdir(cache_dir):
+            return None
+
+        files = os.listdir(cache_dir)
+        wheels = [fn for fn in files if fn.lower().endswith('.whl')]
+        if len(wheels) > 1:
+            raise util.UserError(
+                f"Found multiple wheels in f{cache_dir}. Cannot decide correct one"
+            )
+        if wheels:
+            return os.path.join(cache_dir, wheels[0])
+        return None
 
     def _interpolate_and_run_commands(self, commands, default_cwd, extra_env=None):
         interpolated = self._interpolate_commands(commands)
@@ -965,12 +1007,14 @@ class Environment:
 
         # Install
         self._install_project(repo, commit_hash, build_dir)
+        wheel_file = self._get_wheel_file()
+        dist_name = _wheel_dist_name(wheel_file) if wheel_file is not None else None
 
         # Mark cached build as valid
         self._cache.finalize_cache_dir(commit_hash)
 
         # Mark installation as updated
-        self._set_installed_commit_hash(commit_hash)
+        self._set_installed_commit_hash(commit_hash, [dist_name] if dist_name else [])
 
     def _install_project(self, repo, commit_hash, build_dir):
         """
@@ -996,14 +1040,22 @@ class Environment:
         """
         Run uninstall commands
         """
+        distributions = self._get_installed_distributions()
+
         # Mark installation invalid first
-        self._set_installed_commit_hash(None)
+        self._set_installed_commit_hash(None, distributions)
 
         cmd = self._uninstall_command
         if cmd is None:
             # Run pip via python -m pip, avoids shebang length limit on Linux
-            # pip uninstall may fail if not installed, so allow any exit code
-            cmd = ['return-code=any python -m pip uninstall -y {project}']
+            # pip uninstall may fail if not installed, so allow any exit code.
+            # The installed wheel's distribution name can differ from {project}.
+            names = [
+                name
+                for name in distributions
+                if _canonical_dist_name(name) != _canonical_dist_name(str(self._project))
+            ]
+            cmd = [' '.join(['return-code=any python -m pip uninstall -y {project}'] + names)]
 
         if cmd:
             log.info(f"Uninstalling from {self.name}")

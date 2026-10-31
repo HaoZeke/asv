@@ -791,3 +791,54 @@ def test_run_records_env_inventory_existing(existing_env_conf):
     inventory = results.Results.load(result_fn).env_inventory
     assert inventory['asv-runner'] == importlib.metadata.version('asv_runner')
     assert inventory['asv'] == importlib.metadata.version('asv')
+
+
+@pytest.mark.parametrize(
+    "dvcs_type",
+    [
+        "git",
+        pytest.param("hg", marks=pytest.mark.skipif(tools.hglib is None, reason="needs hglib")),
+    ],
+)
+def test_run_reinstalls_same_version_wheel(basic_conf, dvcs_type):
+    # The distribution (asv_test_repo) differs from conf.project and has the
+    # same version at both commits, so pip keeps the first build unless the
+    # default uninstall removes the distribution of the installed wheel.
+    tmpdir, local, conf, machine_file = basic_conf
+
+    dvcs = tools.generate_test_repo(tmpdir, [1, 2], dvcs_type=dvcs_type, version="1.0")
+
+    os.makedirs("value_benchmark")
+    with open(join("value_benchmark", "__init__.py"), "w"):
+        pass
+    with open(join("value_benchmark", "bench_value.py"), "w") as f:
+        f.write(
+            textwrap.dedent("""\
+            def track_dummy_value():
+                import asv_test_repo
+                return asv_test_repo.dummy_value
+            """)
+        )
+
+    conf.repo = dvcs.path
+    conf.dvcs = dvcs_type
+    conf.benchmark_dir = "value_benchmark"
+    conf.matrix = {}
+    conf.install_command = ["in-dir={env_dir} python -m pip install {wheel_file}"]
+
+    r = get_repo(conf)
+    commits = [r.get_hash_from_name("tag0"), r.get_hash_from_name("tag1")]
+    with open(join(tmpdir, "commits.txt"), "w") as f:
+        f.write("\n".join(commits) + "\n")
+
+    tools.run_asv_with_conf(
+        conf, "run", "HASHFILE:commits.txt", "--quick", _machine_file=machine_file
+    )
+
+    env_name = next(iter(environment.get_environments(conf, None))).name
+    for commit, value in zip(commits, (1, 2)):
+        result_fn = join(
+            "results_workflow", "orangutan", f"{commit[: conf.hash_length]}-{env_name}.json"
+        )
+        data = util.load_json(result_fn)
+        assert data["results"]["bench_value.track_dummy_value"][0] == [value]

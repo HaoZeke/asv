@@ -113,6 +113,12 @@ benchmarked again. A custom ``install_command`` that installs
 default does, or rely on an ``uninstall_command`` that removes the
 installed distribution.
 
+The default ``uninstall_command`` also uninstalls the distribution of
+the wheel that was last installed from ``{build_cache_dir}``, since
+the distribution name (e.g. ``foo``) can differ from ``{project}``
+(e.g. ``foo-core``). A custom ``uninstall_command`` must name the
+distribution itself.
+
 .. note::
 
     .. versionchanged:: 0.6.0

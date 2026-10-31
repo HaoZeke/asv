@@ -864,6 +864,35 @@ def test_custom_commands(
         env.install_project(conf, repo, commit_hash)
 
 
+def test_install_same_version_wheel(tmpdir, request: pytest.FixtureRequest):
+    # The distribution (asv_test_repo) differs from conf.project and has the
+    # same version at both commits, and install_command lacks --force-reinstall
+    tmpdir = str(tmpdir)
+
+    dvcs = generate_test_repo(tmpdir, [1, 2], dvcs_type='git', version="1.0")
+    commits = dvcs.get_branch_hashes()[::-1]
+
+    conf = config.Config()
+    conf.env_dir = os.path.join(tmpdir, "env")
+    conf.environment_type = request.config.getoption('environment_type')
+    conf.conda_channels = ["conda-forge"]
+    conf.pythons = [PYTHON_VER2]
+    conf.repo = os.path.abspath(dvcs.path)
+    conf.matrix = {}
+    conf.project = "asv"
+    conf.install_command = ["in-dir={env_dir} python -m pip install {wheel_file}"]
+
+    repo = get_repo(conf)
+    env = next(iter(environment.get_environments(conf, None)))
+    env.create()
+
+    # The default uninstall_command removes the installed wheel's distribution
+    for commit, value in zip(commits, ("1", "2")):
+        env.install_project(conf, repo, commit)
+        out = env.run(['-c', 'import asv_test_repo; print(asv_test_repo.dummy_value)'])
+        assert out.strip() == value
+
+
 def test_installed_commit_hash(
     tmpdir, request: pytest.FixtureRequest, skip_virtualenv: pytest.FixtureRequest
 ):

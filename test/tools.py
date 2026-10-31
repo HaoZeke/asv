@@ -344,6 +344,7 @@ def generate_test_repo(
     extra_branches=(),
     tags=(),
     subdir='',
+    version=None,
 ):
     """
     Generate a test repository
@@ -366,6 +367,9 @@ def generate_test_repo(
     subdir
         A relative subdirectory inside the repository to copy the
         test project into.
+    version
+        Project version to use for every commit. By default, the
+        version is the index of the commit.
 
     Returns
     -------
@@ -392,7 +396,7 @@ def generate_test_repo(
         os.makedirs(project_path)
 
     for i, value in enumerate(values):
-        mapping = {'version': i, 'dummy_value': value}
+        mapping = {'version': i if version is None else version, 'dummy_value': value}
 
         copy_template(template_path, project_path, dvcs, mapping)
 
