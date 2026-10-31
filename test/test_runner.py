@@ -171,9 +171,12 @@ def test_run_benchmarks(benchmarks_fixture, tmpdir):
     expected = [f"<{j}>" for j in range(1, 12)]
     assert times['time_examples.TimeWithRepeat.time_it'].stderr.split() == expected
 
-    # Calibration of iterations should not rerun setup
-    expected = (['setup'] * 2, ['setup'] * 3)
-    assert times['time_examples.TimeWithRepeatCalibrate.time_it'].stderr.split() in expected
+    # With setup present, asv_runner pins `number` to 1 and re-runs setup
+    # before every timed call, so the count of setups depends on timing
+    calibrate = times['time_examples.TimeWithRepeatCalibrate.time_it']
+    assert calibrate.result != [None]
+    assert calibrate.stats[0]['number'] == 1
+    assert set(calibrate.stderr.split()) == {'setup'}
 
     # Check tuple-form repeat attribute produced results
     assert 2 <= len(times['time_examples.time_auto_repeat'].samples[0]) <= 4

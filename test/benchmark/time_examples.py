@@ -68,17 +68,19 @@ class TimeWithRepeat:
 
 
 class TimeWithRepeatCalibrate:
-    # Check that setup is re-run on each repeat, apart from
-    # autodetection of suitable `number`
+    # Check that with setup present, `number` is not autodetected and
+    # setup is re-run before every timed call, including warmup
     repeat = 1
     number = 0
     sample_time = 0.1
 
     def setup(self):
         print("setup")
+        self.called = False
 
     def time_it(self):
-        pass
+        assert self.called is False
+        self.called = True
 
 
 class TimeWithBadTimer:
