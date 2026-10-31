@@ -17,6 +17,8 @@ from asv.step_detect import (
     solve_potts_autogamma,
 )
 
+from .conftest import HAVE_RANGEMEDIAN
+
 try:
     import numpy as np
 
@@ -257,6 +259,8 @@ def test_l1dist(use_rangemedian):
     sysconfig.get_config_var("Py_GIL_DISABLED") != 1,
     reason="test requires a free-threaded Python build",
 )
+@pytest.mark.skipif(not HAVE_RANGEMEDIAN, reason="compiled asv._rangemedian required")
+@pytest.mark.parametrize("use_rangemedian", ["rangemedian"], indirect=True)
 def test_rangemedian_concurrent_use_fails_fast(use_rangemedian):
     y = [float(j % 7) for j in range(2000)]
     dist = step_detect.get_mu_dist(y, [1] * len(y))
