@@ -484,6 +484,31 @@ The maximum time in seconds that an install or benchmark is allowed to run
 before it is terminated. Benchmark timeout can also be set individually, see
 `benchmark attributes <writing_benchmarks.html#benchmark-attributes>`_.
 
+``launch_method``
+-----------------
+How to launch the processes that run the benchmarks.  One of:
+
+- ``"spawn"``: start a fresh Python process for each benchmark.
+
+- ``"forkserver"``: import the benchmark suite once in a server process
+  and fork a child from it for each benchmark.  This reduces import
+  overhead, but is only available on Unix-based systems, and forking
+  is not safe when the benchmarked code uses threads or holds state
+  such as a CUDA context.
+
+- ``"auto"``: let asv choose.  Since asv 0.6.6 this is ``"spawn"`` on
+  all platforms; earlier versions used ``"forkserver"`` except on
+  macOS and Windows.
+
+If not provided, defaults to ``"auto"``.  The ``--launch-method``
+command line option of :ref:`cmd-asv-run`, :ref:`cmd-asv-continuous`,
+:ref:`cmd-asv-find` and :ref:`cmd-asv-profile` takes precedence over
+this setting.
+
+Example::
+
+    "launch_method": "spawn"
+
 ``hash_length``
 ---------------
 The number of characters to retain in the commit hashes when displayed
