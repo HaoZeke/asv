@@ -77,7 +77,7 @@ Airspeed Velocity rebuilds the project as needed, using these commands.
 The defaults are::
 
   "install_command":
-  ["in-dir={env_dir} python -m pip install {wheel_file}"],
+  ["in-dir={env_dir} python -m pip install {wheel_file} --force-reinstall"],
 
   "uninstall_command":
   ["return-code=any python -m pip uninstall -y {project}"],
@@ -103,6 +103,15 @@ benchmark code.
 
 The uninstall commands should uninstall the project from the
 environment.
+
+Consecutive commits often build the same version of the project.
+``pip install`` of a local wheel whose version is already installed
+does nothing (pip prints "already installed with the same version as
+the provided wheel"), so the previous commit's build would be
+benchmarked again. A custom ``install_command`` that installs
+``{wheel_file}`` should therefore pass ``--force-reinstall``, as the
+default does, or rely on an ``uninstall_command`` that removes the
+installed distribution.
 
 .. note::
 

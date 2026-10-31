@@ -37,7 +37,7 @@
       "description": "Customizable commands for installing the project.\nhttps://asv.readthedocs.io/en/latest/asv.conf.json.html#build-command-install-command-uninstall-command",
       "type": "array",
       "items": { "type": "string" },
-      "default": ["in-dir={env_dir} python -m pip install {wheel_file}"]
+      "default": ["in-dir={env_dir} python -m pip install {wheel_file} --force-reinstall"]
     },
     "uninstall_command": {
       "description": "Customizable commands for uninstalling the project.\nhttps://asv.readthedocs.io/en/latest/asv.conf.json.html#build-command-install-command-uninstall-command",
