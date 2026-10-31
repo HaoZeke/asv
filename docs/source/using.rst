@@ -661,3 +661,10 @@ each of its symbolic states can be understood as:
      - Better
 
 Additionally, statistically insignificant results have ``~`` in the ratio column as well.
+Results whose ratio exceeds the factor but which had too few recorded samples
+for the Mann-Whitney U significance test (7 per side, or e.g. 6 and 7, 5 and 8)
+get a trailing ``?`` in the ratio column, explained by a note below the table.
+Such results are compared using only confidence intervals or the factor, or
+(for e.g. 6 and 6 samples) can never be found significant. Record more samples with
+``--record-samples`` and more ``rounds``/``repeat`` (not ``--quick``), or hide
+the marker with ``--no-mark-few-samples``.

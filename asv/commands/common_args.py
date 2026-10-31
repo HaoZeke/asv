@@ -62,6 +62,16 @@ def add_compare(parser, only_changed_default=False, sort_default='name'):
     )
 
     parser.add_argument(
+        '--no-mark-few-samples',
+        action="store_false",
+        dest="mark_few_samples",
+        default=True,
+        help="""Do not append '?' to the ratio of results that had too few
+        recorded samples for a significance test, and do not print the
+        explanatory note.""",
+    )
+
+    parser.add_argument(
         '--split',
         '-s',
         action='store_true',

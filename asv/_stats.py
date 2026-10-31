@@ -2,6 +2,7 @@
 
 # Author: Pauli Virtanen, 2016
 
+import functools
 import math
 from operator import index
 
@@ -67,6 +68,22 @@ def is_different(samples_a, samples_b, stats_a, stats_b, p_threshold=0.002):
         return False
 
     return True
+
+
+@functools.lru_cache(maxsize=1024)
+def mann_whitney_u_can_reject(n_a, n_b, p_threshold=0.002):
+    """
+    Whether `is_different` can find samples of sizes `n_a` and `n_b`
+    different via the Mann-Whitney U test, i.e. the test is run and its
+    smallest attainable (two-sided) p-value is below `p_threshold`.
+
+    With the default threshold this needs e.g. 7 samples on each side
+    (or 6 and 7, 5 and 8, 4 and 10).
+    """
+    if not 1 / binom(n_a + n_b, min(n_a, n_b)) < p_threshold:
+        return False
+    _, p = mann_whitney_u(list(range(n_a)), list(range(n_a, n_a + n_b)))
+    return p < p_threshold
 
 
 _mann_whitney_u_memo = {}

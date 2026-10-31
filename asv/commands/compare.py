@@ -114,6 +114,19 @@ def _is_result_better(a, b, a_ss, b_ss, factor, use_stats=True):
     return a < b / factor
 
 
+def _sample_count(ss):
+    """
+    Number of recorded samples in a ``(stats, samples)`` pair (none unless
+    run with ``--record-samples``), or None for results without statistics,
+    such as ``track_`` benchmarks.
+    """
+    if not ss or not ss[0]:
+        return None
+    if ss[1] is None:
+        return 0
+    return sum(1 for x in ss[1] if x is not None and not math.isnan(x))
+
+
 class Compare(Command):
     @classmethod
     def setup_arguments(cls, subparsers):
@@ -157,6 +170,7 @@ class Compare(Command):
             machine=args.machine,
             env_spec=args.env_spec,
             use_stats=args.use_stats,
+            mark_few_samples=args.mark_few_samples,
         )
 
     @classmethod
@@ -172,6 +186,7 @@ class Compare(Command):
         machine=None,
         env_spec=None,
         use_stats=True,
+        mark_few_samples=True,
     ):
         repo = get_repo(conf)
         try:
@@ -226,6 +241,7 @@ class Compare(Command):
             machine=machine,
             env_names=env_names,
             commit_names=commit_names,
+            mark_few_samples=mark_few_samples,
         )
 
     @classmethod
@@ -244,6 +260,7 @@ class Compare(Command):
         use_stats=True,
         env_names=None,
         commit_names=None,
+        mark_few_samples=True,
     ):
         results_1 = {}
         results_2 = {}
@@ -328,6 +345,7 @@ class Compare(Command):
         else:
             bench['all'] = []
 
+        num_few_samples = 0
         worsened = False
         improved = False
 
@@ -421,8 +439,26 @@ class Compare(Command):
                 ):
                     ratio = "~" + ratio.strip()
 
+            # Rows beyond the factor are the ones whose verdict depends on
+            # the statistical test, which needs enough recorded samples.
+            n_samples_1 = _sample_count(ss_1.get(benchmark))
+            n_samples_2 = _sample_count(ss_2.get(benchmark))
+            few_samples = (
+                mark_few_samples
+                and use_stats
+                and (mark in ('+', '-') or ratio.startswith('~'))
+                and n_samples_1 is not None
+                and n_samples_2 is not None
+                and not _stats.mann_whitney_u_can_reject(n_samples_1, n_samples_2)
+            )
+            if few_samples:
+                ratio = ratio.strip() + '?'
+
             if only_changed and mark in (' ', 'x', '*'):
                 continue
+
+            if few_samples:
+                num_few_samples += 1
 
             unit = units[benchmark]
 
@@ -500,6 +536,14 @@ class Compare(Command):
                     ],
                     tablefmt="github",
                 )
+            )
+
+        if num_few_samples:
+            color_print("")
+            color_print(
+                f"?: {num_few_samples} result(s) had too few recorded samples for the "
+                "significance test (needs e.g. 7 per side); run with --record-samples "
+                "and more rounds/repeat, not --quick."
             )
 
         return worsened, improved
