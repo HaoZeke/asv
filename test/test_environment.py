@@ -1202,3 +1202,18 @@ def test_base_requirement_asv_runner_follows_host(tmpdir, host_asv_runner_032):
     assert env._base_requirements["pip+asv_runner"] == "==0.3.2"
     assert "pip+asv_runner" not in env.requirements
     assert env.name == f"virtualenv-py{PYTHON_VER1}"
+
+
+@pytest.mark.skipif(not HAS_VIRTUALENV, reason="Requires virtualenv")
+def test_matrix_overrides_base_requirement(tmpdir, monkeypatch):
+    monkeypatch.delenv("ASV_RUNNER_PATH", raising=False)
+    conf = config.Config()
+    conf.env_dir = str(tmpdir.join("env"))
+    conf.environment_type = "virtualenv"
+    conf.pythons = [PYTHON_VER1]
+    conf.matrix = {"pip+asv_runner": ["==0.3.1"]}
+
+    (env,) = environment.get_environments(conf, None)
+    assert env._base_requirements["pip+asv_runner"] == "==0.3.1"
+    assert env.requirements == {"pip+asv_runner": "==0.3.1"}
+    assert env.name == f"virtualenv-py{PYTHON_VER1}-pip+asv_runner==0.3.1"

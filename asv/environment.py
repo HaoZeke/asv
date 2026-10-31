@@ -573,11 +573,12 @@ class Environment:
             # python?
             self._base_requirements["pip+pympler"] = ""
 
-        # Update the _base_requirements if needed
+        # A matrix entry overrides the base requirement. It stays in
+        # _requirements so that it is part of the environment name and is
+        # recorded in the results (asv_runner decides how timing works).
         for key in list(self._requirements.keys()):
             if key in self._base_requirements:
                 self._base_requirements[key] = self._requirements[key]
-                del self._requirements[key]
 
         self._build_command = conf.build_command
         self._install_command = conf.install_command

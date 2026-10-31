@@ -357,6 +357,29 @@ def test_cpu_affinity(basic_conf):
 
 
 @pytest.mark.xfail(tools.HAS_PYPY, reason="Times out randomly on pypy")
+def test_matrix_base_requirement_recorded(basic_conf):
+    tmpdir, local, conf, machine_file = basic_conf
+
+    conf.matrix = {"pip+asv_runner": ["==0.3.2"]}
+
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        f"{util.git_default_branch()}^!",
+        '--bench',
+        'time_secondary.track_value',
+        _machine_file=machine_file,
+    )
+
+    result_dir = join(tmpdir, 'results_workflow', 'orangutan')
+    (result_fn,) = glob.glob(result_dir + '/*-pip+asv_runner==0.3.2.json')
+    data = util.load_json(result_fn)
+    assert data['requirements'] == {'pip+asv_runner': '==0.3.2'}
+    assert data['params']['pip+asv_runner'] == '==0.3.2'
+    assert data['results']['time_secondary.track_value']
+
+
+@pytest.mark.xfail(tools.HAS_PYPY, reason="Times out randomly on pypy")
 def test_env_matrix_value(basic_conf):
     tmpdir, local, conf, machine_file = basic_conf
 
