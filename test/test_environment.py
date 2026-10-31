@@ -1,6 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 import json
 import os
+import pickle
 import sys
 
 import pytest
@@ -708,6 +709,33 @@ def test_conda_channel_addition(tmpdir, channel_list, expected_channel, env_type
                 continue
             print(installed_package)
             assert installed_package['channel'] == expected_channel
+
+
+@pytest.mark.skipif(
+    not HAS_RATTLER or util.ON_PYPY, reason="needs rattler, which only works for CPython"
+)
+@pytest.mark.parametrize("channel_priority", [None, "flexible", "disabled"])
+def test_rattler_environment_pickle(tmpdir, monkeypatch, channel_priority):
+    # asv run --parallel sends environments to worker processes
+    if channel_priority is not None:
+        condarc = tmpdir.join(".condarc")
+        condarc.write(f"channel_priority: {channel_priority}\n")
+        monkeypatch.setenv("CONDARC", str(condarc))
+        monkeypatch.setenv("ASV_USE_CONDARC", "1")
+    else:
+        monkeypatch.delenv("ASV_USE_CONDARC", raising=False)
+
+    conf = config.Config()
+    conf.env_dir = str(tmpdir.join("env"))
+    conf.environment_type = "rattler"
+    conf.pythons = [PYTHON_VER1]
+    conf.matrix = {}
+
+    (env,) = environment.get_environments(conf, None)
+    env2 = pickle.loads(pickle.dumps(env))
+
+    assert env2.name == env.name
+    assert env2._channel_priority == env._channel_priority == (channel_priority or "strict")
 
 
 @pytest.mark.skipif(not (HAS_PYPY and HAS_VIRTUALENV), reason="Requires pypy and virtualenv")

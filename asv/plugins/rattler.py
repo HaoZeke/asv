@@ -16,6 +16,10 @@ from rattler import ChannelPriority, MatchSpec, VirtualPackage, install, solve
 from .. import environment, util
 from ..console import log
 
+# Looked up on ChannelPriority only when solving: older py-rattler
+# releases lack some members.
+_CHANNEL_PRIORITIES = ("strict", "flexible", "disabled")
+
 
 class Rattler(environment.Environment):
     """
@@ -63,7 +67,9 @@ class Rattler(environment.Environment):
         # Rattler configuration things
         self._pkg_cache = f"{self._env_dir}/pkgs"
 
-        self._channel_priority = ChannelPriority.Strict
+        # Stored by name: ChannelPriority members cannot be pickled, and
+        # environments are sent to worker processes by ``asv run --parallel``.
+        self._channel_priority = "strict"
         condarc_path = Path(os.getenv("CONDARC", ""))
         if condarc_path.is_file() and os.getenv("ASV_USE_CONDARC"):
             log.debug(f"Loading environment configuration from {condarc_path}")
@@ -75,13 +81,8 @@ class Rattler(environment.Environment):
 
             if "channel_priority" in condarc_data:
                 priority_str = condarc_data["channel_priority"]
-                priority_map = {
-                    "strict": ChannelPriority.Strict,
-                    "flexible": ChannelPriority.Flexible,
-                    "disabled": ChannelPriority.Disabled,
-                }
-                if priority_str in priority_map:
-                    self._channel_priority = priority_map[priority_str]
+                if priority_str in _CHANNEL_PRIORITIES:
+                    self._channel_priority = priority_str
                     log.debug(f"Set channel priority to {priority_str}")
                 else:
                     log.warning(f"Unknown channel_priority '{priority_str}' in .condarc")
@@ -145,7 +146,7 @@ class Rattler(environment.Environment):
             **{_channels_kwarg: final_channels},
             specs=specs,
             virtual_packages=virtual_packages,
-            channel_priority=self._channel_priority,
+            channel_priority=getattr(ChannelPriority, self._channel_priority.capitalize()),
         )
         await install(records=solved_records, target_prefix=self._path)
         if pip_args:
