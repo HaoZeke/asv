@@ -49,6 +49,8 @@ class Config:
         'benchmark', 'commits', 'y-axis-scale', 'x-axis-scale', 'show-legend',
     })
 
+    LAUNCH_METHODS = ("auto", "spawn", "forkserver")
+
     def __init__(self):
         self.project = "project"
         self.project_url = "#"
@@ -116,6 +118,12 @@ class Config:
             # If 'branches' attribute is present, at least some must
             # be listed.
             raise util.UserError("No branches specified in config file.")
+
+        if conf.launch_method is not None and conf.launch_method not in cls.LAUNCH_METHODS:
+            raise util.UserError(
+                f"Invalid launch_method {conf.launch_method!r} in config file; "
+                f"expected one of: {', '.join(cls.LAUNCH_METHODS)}."
+            )
 
         matrix = getattr(conf, "matrix", None) or {}
         reserved = set(matrix) & cls.GRAPH_UI_RESERVED_MATRIX_KEYS

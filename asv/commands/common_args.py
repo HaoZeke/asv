@@ -8,6 +8,7 @@ import multiprocessing
 from importlib_metadata import version as get_version
 
 from asv import util
+from asv.config import Config
 
 
 def add_global_arguments(parser, suppress_defaults=True):
@@ -288,7 +289,7 @@ def add_launch_method(parser):
         "--launch-method",
         dest="launch_method",
         action="store",
-        choices=("auto", "spawn", "forkserver"),
+        choices=Config.LAUNCH_METHODS,
         default=None,
         help=(
             "How to launch benchmarks. Choices: auto, spawn, forkserver. "

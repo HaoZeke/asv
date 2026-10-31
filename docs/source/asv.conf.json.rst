@@ -503,7 +503,7 @@ How to launch the processes that run the benchmarks.  One of:
 If not provided, defaults to ``"auto"``.  The ``--launch-method``
 command line option of :ref:`cmd-asv-run`, :ref:`cmd-asv-continuous`,
 :ref:`cmd-asv-find` and :ref:`cmd-asv-profile` takes precedence over
-this setting.
+this setting.  Any other value is an error.
 
 Example::
 

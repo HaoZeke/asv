@@ -1,8 +1,11 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
+import json
 import os
 from os.path import dirname, join
 import sys
+
+import pytest
 
 from asv import commands, config, environment, util
 from asv.commands import Command
@@ -72,3 +75,26 @@ def test_cmd_line_config():
         [sys.executable, "-m", "asv", "machine", "--yes", "--config", "test/asv.conf.json"],
         cwd=os.path.join(os.path.dirname(__file__), ".."),
     )
+
+
+@pytest.mark.parametrize("value", [None, "auto", "spawn", "forkserver"])
+def test_config_launch_method_valid(value):
+    d = {"repo": "."}
+    if value is not None:
+        d["launch_method"] = value
+    conf = config.Config.from_json(d)
+    assert conf.launch_method == value
+
+
+@pytest.mark.parametrize("value", ["fork", "Spawn", "", 1])
+def test_config_launch_method_invalid(value):
+    with pytest.raises(util.UserError, match="Invalid launch_method"):
+        config.Config.from_json({"repo": ".", "launch_method": value})
+
+
+def test_config_load_launch_method_invalid(tmpdir):
+    path = os.path.join(str(tmpdir), "asv.conf.json")
+    with open(path, "w") as f:
+        json.dump({"version": 1, "repo": ".", "launch_method": "fork"}, f)
+    with pytest.raises(util.UserError, match="Invalid launch_method 'fork'"):
+        config.Config.load(path)
