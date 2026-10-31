@@ -421,3 +421,58 @@ def test_compare_split_only_changed_has_titles(capsys, tmpdir, example_results):
     assert "Benchmarks that have improved:" in text
     assert "Benchmarks that have got worse:" in text
     assert "time_units.time_unit_to" in text or "time_ci_small" in text
+
+
+def test_factor_for():
+    from asv.commands.compare import _factor_for
+
+    conf = config.Config()
+    assert _factor_for(conf, "time_units.time_unit_parse", 2) == 2
+
+    conf.compare_factors = {r"^time_units\.": 40, "unit_parse": 31, "^mem_": 1.05}
+    assert _factor_for(conf, "time_units.time_unit_parse", 2) == 40
+    assert _factor_for(conf, "time_quantity.time_quantity_unit_parse", 2) == 31
+    assert _factor_for(conf, "mem_unit", 2) == 1.05
+    assert _factor_for(conf, "time_ci_small", 2) == 2
+
+
+def test_compare_compare_factors(capsys, tmpdir, example_results):
+    tmpdir = str(tmpdir)
+    os.chdir(tmpdir)
+
+    conf = config.Config.from_json(
+        {
+            'results_dir': example_results,
+            'repo': tools.generate_test_repo(tmpdir).path,
+            'project': 'asv',
+            'environment_type': "shouldn't matter what",
+            'compare_factors': {
+                r'^time_units\.': 40,
+                r'^time_other\.time_parameterized': 1.5,
+            },
+        }
+    )
+
+    tools.run_asv_with_conf(
+        conf,
+        'compare',
+        '22b920c6',
+        'fcf8c079',
+        '--machine=cheetah',
+        '--factor=2',
+        '--environment=py2.7-numpy1.8',
+    )
+    text, err = capsys.readouterr()
+    rows = {
+        line.split('|')[-2].strip(): line.split('|')[1].strip()
+        for line in text.splitlines()
+        if line.startswith('|') and not line.startswith('|--')
+    }
+
+    assert rows['time_units.time_unit_parse'] == ''
+    assert rows['time_units.time_simple_unit_parse'] == ''
+    assert rows['time_units.time_unit_to'] == ''
+    assert rows['time_other.time_parameterized(1)'] == ''
+    assert rows['time_other.time_parameterized(2)'] == '+'
+    assert rows['time_quantity.time_quantity_init_array'] == '+'
+    assert rows['time_ci_small'] == '+'

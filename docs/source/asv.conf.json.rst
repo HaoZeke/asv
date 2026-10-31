@@ -572,3 +572,26 @@ Example::
 
 In this case, the reporting threshold is 1% for all benchmarks, except
 ``benchmark_1`` which uses a threshold of 20%.
+
+``compare_factors``
+-------------------
+
+Per-benchmark factors for :ref:`cmd-asv-compare` and
+:ref:`cmd-asv-continuous`, for benchmarks that are noisier (or more stable)
+than the rest of the suite.
+
+The value is a dictionary mapping regular expressions to factors.  A
+benchmark uses the largest factor whose regular expression matches its name
+(``re.search``) instead of the ``--factor`` command-line value; benchmarks
+that match no entry use ``--factor``.
+
+Example::
+
+    "compare_factors": {
+        "^mem_": 1.05,
+        "^time_io\\.": 1.5
+    }
+
+In this case ``time_io.*`` benchmarks are only reported as changed when they
+differ by more than 50%, ``mem_*`` benchmarks when they differ by more than
+5%, and all other benchmarks use ``--factor`` (default 1.1).

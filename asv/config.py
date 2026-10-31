@@ -73,6 +73,7 @@ class Config:
         self.dvcs = None
         self.regressions_first_commits = {}
         self.regressions_thresholds = {}
+        self.compare_factors = {}
         self.plugins = []
         self.conda_channels = []
         self.conda_environment_file = None

@@ -2,6 +2,7 @@
 
 import itertools
 import math
+import re
 
 import tabulate
 from asv_runner.console import color_print
@@ -72,6 +73,19 @@ def unroll_result(benchmark_name, params, *values):
 def _isna(value):
     # None (failed) or NaN (skipped)
     return value is None or value != value
+
+
+def _factor_for(conf, benchmark, default):
+    """
+    Factor for one benchmark: the largest ``compare_factors`` value whose
+    regex matches the benchmark name (``re.search``), else ``default``.
+    """
+    matched = [
+        float(value)
+        for regex, value in getattr(conf, "compare_factors", {}).items()
+        if re.search(regex, benchmark)
+    ]
+    return max(matched) if matched else default
 
 
 def _is_result_better(a, b, a_ss, b_ss, factor, use_stats=True):
@@ -318,6 +332,7 @@ class Compare(Command):
         improved = False
 
         for benchmark in joint_benchmarks:
+            bench_factor = _factor_for(conf, benchmark[0], factor)
             if benchmark in results_1:
                 time_1 = results_1[benchmark]
             else:
@@ -379,7 +394,7 @@ class Compare(Command):
                 time_1,
                 ss_2.get(benchmark),
                 ss_1.get(benchmark),
-                factor,
+                bench_factor,
                 use_stats=use_stats,
             ):
                 color = 'green'
@@ -390,7 +405,7 @@ class Compare(Command):
                 time_2,
                 ss_1.get(benchmark),
                 ss_2.get(benchmark),
-                factor,
+                bench_factor,
                 use_stats=use_stats,
             ):
                 color = 'red'
@@ -401,8 +416,8 @@ class Compare(Command):
                 mark = ' '
 
                 # Mark statistically insignificant results
-                if _is_result_better(time_1, time_2, None, None, factor) or _is_result_better(
-                    time_2, time_1, None, None, factor
+                if _is_result_better(time_1, time_2, None, None, bench_factor) or _is_result_better(
+                    time_2, time_1, None, None, bench_factor
                 ):
                     ratio = "~" + ratio.strip()
 
