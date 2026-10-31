@@ -8,7 +8,7 @@ from ..console import log
 from ..machine import Machine
 from ..repo import get_repo
 from ..results import Results
-from ..runner import run_benchmarks
+from ..runner import record_env_inventory, run_benchmarks
 from . import Command, common_args
 from .setup import Setup
 
@@ -173,6 +173,7 @@ class Find(Command):
 
             if not skip_save:
                 result.load_data(conf.results_dir)
+                record_env_inventory(env, result)
 
             res = run_benchmarks(
                 benchmarks,

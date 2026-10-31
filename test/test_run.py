@@ -2,6 +2,7 @@
 
 import datetime
 import glob
+import importlib.metadata
 import os
 import re
 import shutil
@@ -586,3 +587,68 @@ def test_run_accepts_HEAD_range(basic_conf):
 
     results_dir = join('results_workflow', 'orangutan')
     assert result_filename in os.listdir(results_dir)
+
+
+def test_run_records_env_inventory(capsys, basic_conf_2):
+    tmpdir, local, conf, machine_file = basic_conf_2
+    conf.matrix = {
+        "pip+asv_dummy_test_package_1": [""],
+        "pip+asv_dummy_test_package_2": [""],
+    }
+    branch = util.git_default_branch()
+
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        f"{branch}~2..{branch}",
+        '--quick',
+        '--bench=time_secondary.track_value',
+        _machine_file=machine_file,
+    )
+
+    (env,) = environment.get_environments(conf, None)
+    runner_version = env.run(
+        ['-c', 'import importlib.metadata as m; print(m.version("asv_runner"))']
+    ).strip()
+
+    r = get_repo(conf)
+    head = r.get_hash_from_name(branch)
+    previous = r.get_hash_from_name(f"{branch}~1")
+
+    result_files = glob.glob(join(tmpdir, 'results_workflow', 'orangutan', '*-*.json'))
+    loaded = [results.Results.load(fn) for fn in result_files]
+    assert len(loaded) == 2
+    project_versions = {}
+    for res in loaded:
+        assert 'env_inventory' in util.load_json(join(tmpdir, 'results_workflow', res._filename))
+        inventory = res.env_inventory
+        assert inventory['asv-runner'] == runner_version
+        assert inventory['asv-dummy-test-package-1'] == tools.DUMMY1_VERSION
+        assert inventory['asv-dummy-test-package-2'] in tools.DUMMY2_VERSIONS
+        project_versions[res.commit_hash] = int(inventory['asv-test-repo'])
+    assert project_versions[head] == project_versions[previous] + 1
+
+    capsys.readouterr()
+    tools.run_asv_with_conf(conf, 'show', branch, '--details')
+    text, err = capsys.readouterr()
+    assert f"asv-runner=={runner_version}" in text
+    assert f"asv-dummy-test-package-1=={tools.DUMMY1_VERSION}" in text
+
+
+def test_run_records_env_inventory_existing(existing_env_conf):
+    tmpdir, local, conf, machine_file = existing_env_conf
+
+    r = repo.get_repo(conf)
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        '--set-commit-hash=' + r.get_branch_name(),
+        '--quick',
+        '--bench=time_secondary.track_value',
+        _machine_file=join(tmpdir, 'asv-machine.json'),
+    )
+
+    (result_fn,) = glob.glob(join('results_workflow', 'orangutan', '*-*.json'))
+    inventory = results.Results.load(result_fn).env_inventory
+    assert inventory['asv-runner'] == importlib.metadata.version('asv_runner')
+    assert inventory['asv'] == importlib.metadata.version('asv')

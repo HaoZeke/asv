@@ -239,6 +239,66 @@ def test_iter_results(capsys, tmpdir, example_results):
     assert "machine.json" in out
 
 
+def test_env_inventory_roundtrip(tmpdir):
+    tmpdir = str(tmpdir)
+    inventory = {'asv-runner': '0.3.2', 'numpy': '2.1.0'}
+
+    r = results.Results(
+        {'machine': 'mach'}, {'numpy': ''}, 'aaaa', 0, 'py', 'env', {}, env_inventory=inventory
+    )
+    assert r.env_inventory == inventory
+    r.save(tmpdir)
+
+    path = join(tmpdir, 'mach', 'aaaa-env.json')
+    data = util.load_json(path)
+    assert data['version'] == results.Results.api_version == 2
+    assert data['env_inventory'] == inventory
+
+    r2 = results.Results.load(path)
+    assert r2.env_inventory == inventory
+
+    # load_data keeps the stored inventory until a new one is set
+    r3 = results.Results({'machine': 'mach'}, {}, 'aaaa', 0, 'py', 'env', {})
+    r3.load_data(tmpdir)
+    assert r3.env_inventory == inventory
+    r3.set_env_inventory({'numpy': '2.2.0'})
+    r3.save(tmpdir)
+    assert results.Results.load(path).env_inventory == {'numpy': '2.2.0'}
+
+    r3.set_env_inventory(None)
+    r3.save(tmpdir)
+    assert 'env_inventory' not in util.load_json(path)
+    assert results.Results.load(path).env_inventory is None
+
+
+def test_env_inventory_missing_in_old_files(tmpdir, example_results):
+    r = results.Results.load(
+        join(example_results, 'cheetah', '624da0aa-py2.7-Cython-numpy1.8.json')
+    )
+    assert r.env_inventory is None
+
+    r = results.Results({'machine': 'mach'}, {}, 'aaaa', 0, 'py', 'env', {})
+    r.save(str(tmpdir))
+    path = join(str(tmpdir), 'mach', 'aaaa-env.json')
+    assert 'env_inventory' not in util.load_json(path)
+    assert results.Results.load(path).env_inventory is None
+
+
+def test_record_env_inventory_failure(capsys):
+    class BrokenEnv:
+        name = 'broken'
+
+        def get_installed_distributions(self):
+            raise util.ProcessError(['python'], 1, '', 'boom')
+
+    r = results.Results.unnamed()
+    r.set_env_inventory({'old': '1'})
+    runner.record_env_inventory(BrokenEnv(), r)
+    assert r.env_inventory is None
+    out, err = capsys.readouterr()
+    assert "Could not list installed distributions in broken: boom" in out + err
+
+
 def test_filename_format():
     r = results.Results({'machine': 'foo'}, [], "commit", 0, "", "env", {})
     assert r._filename == join("foo", "commit-env.json")

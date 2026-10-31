@@ -170,7 +170,13 @@ class Show(Command):
         color_print("")
 
         for machine, result in result_iter:
-            for name in sorted(result.get_result_keys(benchmarks)):
+            names = sorted(result.get_result_keys(benchmarks))
+            if show_details and names and result.env_inventory:
+                color_print(f"Installed in [{machine}/{result.env_name}]:", 'green')
+                for dist, version in sorted(result.env_inventory.items()):
+                    color_print(f"  {dist}=={version}")
+                color_print("")
+            for name in names:
                 cls._print_benchmark(machine, result, benchmarks[name], show_details=show_details)
 
     @classmethod

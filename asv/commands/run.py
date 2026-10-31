@@ -14,7 +14,7 @@ from ..console import log
 from ..machine import Machine
 from ..repo import NoSuchNameError, get_repo
 from ..results import Results, get_existing_hashes, iter_results_for_machine_and_hash
-from ..runner import run_benchmarks, skip_benchmarks
+from ..runner import record_env_inventory, run_benchmarks, skip_benchmarks
 from . import Command, common_args
 from .setup import Setup
 from .show import Show
@@ -598,6 +598,8 @@ class Run(Command):
                         force_record_samples = interleave_rounds and run_rounds[0] > 1
 
                         if success:
+                            if not skip_save:
+                                record_env_inventory(env, result)
                             run_benchmarks(
                                 benchmark_set,
                                 env,

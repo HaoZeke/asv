@@ -8,6 +8,7 @@ of dependencies.
 import hashlib
 import importlib
 import itertools
+import json
 import os
 import re
 import subprocess
@@ -26,6 +27,25 @@ else:
     import tomli as tomllib
 
 WIN = os.name == "nt"
+
+# Runs inside the environment's Python, so it must stay compatible with
+# every Python version an environment can have.  The working directory is
+# dropped from sys.path so that metadata in the current directory (e.g. a
+# source checkout's *.egg-info) is not reported as installed.
+_INVENTORY_SCRIPT = """
+import json, re, sys
+sys.path = [p for p in sys.path if p not in ("", ".")]
+try:
+    from importlib.metadata import distributions
+except ImportError:
+    from importlib_metadata import distributions
+found = {}
+for dist in distributions():
+    name = dist.metadata["Name"]
+    if name:
+        found.setdefault(re.sub(r"[-_.]+", "-", name).lower(), dist.version)
+sys.stdout.write("\\n" + json.dumps(found, sort_keys=True) + "\\n")
+"""
 
 
 def iter_matrix(environment_type, pythons, conf, explicit_selection=False):
@@ -534,6 +554,7 @@ class Environment:
         self._project = conf.project
 
         self._is_setup = False
+        self._installed_distributions = None
 
         self._cache = build_cache.BuildCache(conf, self._path)
         self._build_root = os.path.abspath(os.path.join(self._path, 'project'))
@@ -649,6 +670,45 @@ class Environment:
     @property
     def installed_commit_hash(self):
         return self._get_installed_commit_hash()
+
+    def get_installed_distributions(self):
+        """
+        Return the Python distributions installed in the environment.
+
+        Runs the environment's Python once per installed project commit;
+        the result is cached for as long as the installed commit does not
+        change.
+
+        Returns
+        -------
+        distributions : dict
+            Mapping from normalized distribution name (PEP 503) to its
+            installed version.
+
+        Raises
+        ------
+        util.ProcessError
+            If the environment's Python cannot be run.
+        ValueError
+            If the output cannot be parsed.
+        """
+        key = self.installed_commit_hash
+        if self._installed_distributions is not None:
+            cached_key, cached = self._installed_distributions
+            if cached_key == key:
+                return dict(cached)
+
+        output = self.run(["-c", _INVENTORY_SCRIPT], dots=False, display_error=False)
+        lines = output.strip().splitlines()
+        if not lines:
+            raise ValueError("no output")
+        found = json.loads(lines[-1])
+        if not isinstance(found, dict):
+            raise ValueError(f"unexpected output: {lines[-1]!r}")
+        distributions = {str(k): str(v) for k, v in found.items()}
+
+        self._installed_distributions = (key, distributions)
+        return dict(distributions)
 
     @classmethod
     def matches(self, python):

@@ -182,7 +182,17 @@ class Results:
 
     api_version = 2
 
-    def __init__(self, params, requirements, commit_hash, date, python, env_name, env_vars):
+    def __init__(
+        self,
+        params,
+        requirements,
+        commit_hash,
+        date,
+        python,
+        env_name,
+        env_vars,
+        env_inventory=None,
+    ):
         """
         Parameters
         ----------
@@ -208,6 +218,10 @@ class Results:
 
         env_vars: dict
             Environment variables
+
+        env_inventory : dict, optional
+            Distributions installed in the environment (normalized name
+            -> version), or None if not known.
         """
         self._params = params
         self._requirements = requirements
@@ -224,6 +238,7 @@ class Results:
         self._duration = {}
         self._benchmark_version = {}
         self._env_vars = env_vars
+        self._env_inventory = env_inventory
 
         # Note: stderr and errcode are not saved to files
         self._stderr = {}
@@ -253,6 +268,17 @@ class Results:
     @property
     def env_vars(self):
         return self._env_vars
+
+    @property
+    def env_inventory(self):
+        """
+        Distributions installed in the environment the benchmarks ran in,
+        as a dict of normalized name -> version, or None if not recorded.
+        """
+        return self._env_inventory
+
+    def set_env_inventory(self, value):
+        self._env_inventory = dict(value) if value is not None else None
 
     @property
     def started_at(self):
@@ -655,6 +681,9 @@ class Results:
             'durations': other_durations,
         }
 
+        if self._env_inventory is not None:
+            data['env_inventory'] = self._env_inventory
+
         util.write_json(path, data, self.api_version, compact=True)
 
     def load_data(self, result_dir):
@@ -673,6 +702,7 @@ class Results:
                 '_samples',
                 '_stats',
                 '_env_vars',
+                '_env_inventory',
                 '_benchmark_params',
                 '_profiles',
                 '_started_at',
@@ -706,6 +736,7 @@ class Results:
                 d['python'],
                 d['env_name'],
                 d['env_vars'],
+                d.get('env_inventory'),
             )
 
             obj._results = {}
