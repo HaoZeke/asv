@@ -23,7 +23,7 @@ from . import tools
 from .tools import WAIT_TIME, WIN, get_with_retry
 
 
-def _rebuild_basic_html(basedir):
+def _rebuild_basic_html(basedir, environment_type):
     local = abspath(dirname(__file__))
     cwd = os.getcwd()
 
@@ -55,6 +55,7 @@ def _rebuild_basic_html(basedir):
                 'html_dir': join(basedir, 'html'),
                 'repo': join(basedir, 'repo'),
                 'dvcs': 'git',
+                'environment_type': environment_type,
                 'project': 'asv',
                 'matrix': {"env": {"SOME_TEST_VAR": ["1"]}},
                 'regressions_first_commits': {'.*': first_tested_commit_hash},
