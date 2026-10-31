@@ -627,7 +627,7 @@ def test_environment_select_autodetect(skip_no_conda: pytest.FixtureRequest):
 @pytest.mark.skipif((not HAS_CONDA), reason="Requires conda")
 def test_matrix_empty(skip_no_conda: pytest.FixtureRequest):
     conf = config.Config()
-    conf.environment_type = ""
+    conf.environment_type = "conda"
     conf.pythons = [PYTHON_VER1]
     conf.matrix = {}
 
@@ -635,6 +635,11 @@ def test_matrix_empty(skip_no_conda: pytest.FixtureRequest):
     environments = list(environment.get_environments(conf, None))
     items = [env.python for env in environments]
     assert items == [PYTHON_VER1]
+
+    # The environment type is not autodetected
+    conf.environment_type = ""
+    with pytest.raises(RuntimeError, match="Environment type must be specified"):
+        list(environment.get_environments(conf, None))
 
 
 @pytest.mark.skipif((not HAS_CONDA), reason="Requires conda")
