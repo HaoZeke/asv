@@ -557,6 +557,10 @@ class Run(Command):
                         params = dict(machine_params.__dict__)
                         params['python'] = env.python
                         params.update(env.requirements)
+                        if attribute and attribute.get('cpu_affinity') is not None:
+                            params['cpu_affinity'] = ",".join(
+                                str(c) for c in attribute['cpu_affinity']
+                            )
 
                         skip_save = dry_run or (
                             isinstance(env, environment.ExistingEnvironment)

@@ -353,6 +353,7 @@ def test_cpu_affinity(basic_conf):
     (result_fn,) = [join(result_dir, fn) for fn in os.listdir(result_dir) if fn != 'machine.json']
     data = util.load_json(result_fn)
     assert data['results']['time_examples.TimeSuite.time_example_benchmark_1']
+    assert data['params']['cpu_affinity'] == '0'
 
 
 @pytest.mark.xfail(tools.HAS_PYPY, reason="Times out randomly on pypy")
