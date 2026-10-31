@@ -14,6 +14,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import canonicalize_name
+
 from . import build_cache, util
 from .console import log
 
@@ -570,14 +573,6 @@ class Environment:
             # python?
             self._base_requirements["pip+pympler"] = ""
 
-        pyproject_path = Path.cwd() / "pyproject.toml"
-        if pyproject_path.exists():
-            with open(pyproject_path, "rb") as pyproject_file:
-                pyproject_data = tomllib.load(pyproject_file)
-                requires = pyproject_data.get("build-system", {}).get("requires", [])
-                for requirement in requires:
-                    self._base_requirements[f"pip+{requirement}"] = ""
-
         # Update the _base_requirements if needed
         for key in list(self._requirements.keys()):
             if key in self._base_requirements:
@@ -904,6 +899,7 @@ class Environment:
         else:
             cache_dir = self._cache.create_cache_dir(commit_hash)
             self._set_build_dirs(build_dir, cache_dir)
+            self._install_build_requirements(repo, commit_hash, build_dir)
             self._build_project(repo, commit_hash, build_dir)
 
         # Install
@@ -953,6 +949,57 @@ class Environment:
             self._interpolate_and_run_commands(
                 cmd, default_cwd=self._env_dir, extra_env=self.build_env_vars
             )
+
+    def _get_build_requirements(self, build_dir):
+        """
+        Return the ``build-system.requires`` entries of the project checked
+        out in ``build_dir``, except for packages already installed as part
+        of the environment (matrix entries or asv's own requirements), whose
+        versions take precedence.
+        """
+        pyproject_path = Path(build_dir) / "pyproject.toml"
+        if not pyproject_path.is_file():
+            return []
+
+        try:
+            with open(pyproject_path, "rb") as pyproject_file:
+                pyproject_data = tomllib.load(pyproject_file)
+        except tomllib.TOMLDecodeError as exc:
+            log.warning(f"Ignoring build requirements in {pyproject_path}: {exc}")
+            return []
+
+        requires = pyproject_data.get("build-system", {}).get("requires", [])
+
+        env_packages = set()
+        for key in {**self._requirements, **self._base_requirements}:
+            env_packages.add(canonicalize_name(key.removeprefix("pip+")))
+
+        build_requirements = []
+        for requirement in requires:
+            try:
+                name = canonicalize_name(Requirement(requirement).name)
+            except InvalidRequirement:
+                name = None
+            if name not in env_packages:
+                build_requirements.append(requirement)
+
+        return build_requirements
+
+    def _install_build_requirements(self, repo, commit_hash, build_dir):
+        """
+        Install the build requirements of the checked out commit
+        """
+        requirements = self._get_build_requirements(build_dir)
+        if not requirements:
+            return
+
+        commit_name = repo.get_decorated_hash(commit_hash, 8)
+        log.info(f"Installing build requirements of {commit_name} into {self.name}")
+        env = dict(os.environ)
+        env.update(self.build_env_vars)
+        self.run_executable(
+            "python", ["-m", "pip", "install", "-v", "--upgrade"] + requirements, env=env
+        )
 
     def _build_project(self, repo, commit_hash, build_dir):
         """

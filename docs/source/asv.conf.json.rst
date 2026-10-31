@@ -115,6 +115,15 @@ environment.
         <https://peps.python.org/pep-0518/>`_), and this approach will be the
         default from ``asv v0.6.0`` onwards.
 
+Before running ``build_command`` for a commit, ``asv`` installs the
+``build-system.requires`` entries of the ``pyproject.toml`` found in
+``{build_dir}`` at that commit into the environment (with ``pip install
+--upgrade``), so that build commands which disable build isolation see the
+build requirements of the commit being built. Packages named in the
+``matrix`` are skipped, so their matrix versions are kept. Build
+requirements are not uninstalled afterwards; packages needed only by
+another commit may remain in the environment.
+
 The build commands can optionally be used to cache build results in the
 cache directory ``{build_cache_dir}``, which is commit and
 environment-specific.  If the cache directory contains any files after
