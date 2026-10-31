@@ -140,8 +140,9 @@ class Run(Command):
             action="store_true",
             help="""Do a "quick" run, where each benchmark function is
             run only once.  This is useful to find basic errors in the
-            benchmark functions faster.  The results are unlikely to
-            be useful, and thus are not saved.""",
+            benchmark functions faster.  The results are saved, but one
+            sample is not enough for a reliable comparison.  Pass
+            --dry-run to run without saving results.""",
         )
         common_args.add_environment(parser, default_same=env_default_same)
         parser.add_argument(
