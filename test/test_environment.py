@@ -435,6 +435,70 @@ def test_conda_environment_file(tmpdir, dummy_packages, skip_no_conda: pytest.Fi
         assert output.startswith(str(DUMMY2_VERSIONS[1]))
 
 
+@pytest.mark.parametrize("use_environment_file", [False, True])
+def test_conda_environment_file_pip_requirements(tmpdir, monkeypatch, use_environment_file):
+    from packaging.requirements import Requirement
+
+    from asv.plugins.conda import Conda
+
+    monkeypatch.chdir(tmpdir)
+    monkeypatch.delenv("ASV_RUNNER_PATH", raising=False)
+
+    conf = config.Config()
+    conf.env_dir = str(tmpdir.join("env"))
+    conf.conda_channels = ["conda-forge"]
+    conf.conda_environment_file = None
+    if use_environment_file:
+        conf.conda_environment_file = str(tmpdir.join("environment.yml"))
+        with open(conf.conda_environment_file, "w") as f:
+            f.write("name: test_conda_envs\ndependencies:\n    - pip\n")
+    requirements = {
+        "numpy": "1.26",
+        "pip+asv_dummy_test_package_1": "",
+        "pip+asv_dummy_test_package_2": "0.3.8",
+        "pip+asv_dummy_test_package_3>=1.0,<2": "",
+        "pip+bounded": ">=1.0,<2",
+        "pip+asv_dummy_test_package_4": "-e ./asv_dummy_test_package_4",
+    }
+    env = Conda(conf, PYTHON_VER1, requirements, {})
+
+    env_files = []
+
+    def run_conda(args, env=None):
+        if args == ["--version"]:
+            return "conda 24.11.3"
+        if args[0] == "env" and "-f" in args:
+            with open(args[args.index("-f") + 1]) as f:
+                env_files.append(f.read())
+        return ""
+
+    pip_calls = []
+    monkeypatch.setattr(env, "_run_conda", run_conda)
+    monkeypatch.setattr(env, "_run_pip", lambda args, **kwargs: pip_calls.append(args))
+
+    env._setup()
+
+    lines = env_files[-1].splitlines()
+    pip_reqs = [line.strip()[2:] for line in lines[lines.index("   - pip:") + 1 :]]
+    expected = [
+        "asv_dummy_test_package_1",
+        "asv_dummy_test_package_2==0.3.8",
+        "asv_dummy_test_package_3>=1.0,<2",
+        "bounded>=1.0,<2",
+        "build",
+        "asv_runner" + getattr(environment, "_host_asv_runner_spec", lambda: "")(),
+    ]
+    if not util.ON_PYPY:
+        expected.append("pympler")
+    assert pip_reqs == expected
+    for req in pip_reqs:
+        Requirement(req)
+    assert "   - numpy=1.26" in lines
+    assert ["install", "-v", "--upgrade", "-e", "./asv_dummy_test_package_4"] in pip_calls
+    assert ["install", "-v", "--upgrade", "bounded>=1.0,<2"] in pip_calls
+    assert ["install", "-v", "--upgrade", "bounded==1.0"] not in pip_calls
+
+
 @pytest.mark.skipif((not HAS_CONDA), reason="Requires conda and conda-build")
 def test_conda_run_executable(tmpdir):
     # test that we can install with pip into a conda environment.

@@ -5,6 +5,7 @@ import re
 import tempfile
 from pathlib import Path
 
+from packaging.requirements import InvalidRequirement, Requirement
 from packaging.version import Version
 
 from .. import environment, util
@@ -28,6 +29,39 @@ def _conda_lock():
 @contextlib.contextmanager
 def _dummy_lock():
     yield
+
+
+def _pip_requirement_text(declaration, parsed):
+    """
+    Requirement text for a declaration that has no flags and no path.
+
+    A string packaging already accepts, including ``name >=1.0,<2``, is kept
+    with the spaces removed. ``ParsedPipDeclaration`` turns that string into
+    ``name==1.0``. A bare ``name 1.2`` is not a requirement; the parser's
+    ``name==1.2`` is used for that case.
+    """
+    text = " ".join(declaration.split())
+    try:
+        Requirement(text)
+    except InvalidRequirement:
+        if parsed.pkgname and parsed.specification:
+            return f"{parsed.pkgname}{parsed.specification}"
+        return parsed.pkgname
+    return "".join(declaration.split())
+
+
+def _environment_file_pip_requirement(declaration):
+    """
+    Convert a pip declaration into a requirement for the ``pip:`` section
+    of an environment.yml.
+
+    Returns None for declarations with flags or paths, which are only
+    installed by calling pip directly after the environment is created.
+    """
+    parsed = util.ParsedPipDeclaration(declaration)
+    if parsed.flags or parsed.path:
+        return None
+    return _pip_requirement_text(declaration, parsed)
 
 
 def _find_conda():
@@ -126,6 +160,9 @@ class Conda(environment.Environment):
         log.info(f"Creating conda environment for {self.name}")
 
         conda_args, pip_args = self._get_requirements()
+        env_file_pip_args = [
+            req for req in map(_environment_file_pip_requirement, pip_args) if req is not None
+        ]
         env = dict(os.environ)
         env.update(self.build_env_vars)
 
@@ -144,14 +181,14 @@ class Conda(environment.Environment):
         try:
             env_file.write(f'name: {self.name}\nchannels:\n')
             env_file.writelines(f'   - {ch}\n' for ch in self._conda_channels)
-            if conda_args or pip_args:
+            if conda_args or env_file_pip_args:
                 env_file.write('dependencies:\n')
             if conda_args:
                 # categorize & write dependencies based on pip vs. conda
                 env_file.writelines(f'   - {s}\n' for s in conda_args)
-            if pip_args:
+            if env_file_pip_args:
                 env_file.write('   - pip:\n')
-                env_file.writelines(f'      - {s}\n' for s in pip_args)
+                env_file.writelines(f'      - {s}\n' for s in env_file_pip_args)
             env_file.close()
             try:
                 env_file_name = self._conda_environment_file or env_file.name
@@ -171,7 +208,7 @@ class Conda(environment.Environment):
                         env=env,
                     )
 
-                if self._conda_environment_file and (conda_args or pip_args):
+                if self._conda_environment_file and (conda_args or env_file_pip_args):
                     # Add extra packages
                     env_file_name = env_file.name
                     self._run_conda(
@@ -193,8 +230,13 @@ class Conda(environment.Environment):
         if pip_args:
             for declaration in pip_args:
                 parsed_declaration = util.ParsedPipDeclaration(declaration)
-                pip_call = util.construct_pip_call(self._run_pip, parsed_declaration)
-                pip_call()
+                if parsed_declaration.flags or parsed_declaration.path:
+                    pip_call = util.construct_pip_call(self._run_pip, parsed_declaration)
+                    pip_call()
+                else:
+                    spec = _pip_requirement_text(declaration, parsed_declaration)
+                    if spec:
+                        self._run_pip(["install", "-v", "--upgrade", spec])
 
     def _get_requirements(self):
         conda_args = []
