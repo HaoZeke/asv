@@ -255,6 +255,28 @@ def match_rule(target, rule):
     return True
 
 
+def _host_asv_runner_spec():
+    """
+    Version specifier for asv_runner inside benchmark environments.
+
+    Pins the environment to the asv_runner release installed next to asv, so
+    timing semantics follow the host install instead of whatever is newest
+    on PyPI when the environment is created. Development builds are not
+    pinned because they are usually not on the index.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover
+        return ""
+    try:
+        ver = version("asv_runner")
+    except PackageNotFoundError:
+        return ""
+    if "dev" in ver or "+" in ver:
+        return ""
+    return f"=={ver}"
+
+
 def get_env_name(tool_name, python, requirements, tagged_env_vars, build=False):
     """
     Get a name to uniquely identify an environment.
@@ -537,7 +559,7 @@ class Environment:
                 self._base_requirements["pip+asv_runner"] = ""
                 log.warning(f"Failed to load module from ASV_RUNNER_PATH: {e}")
         else:
-            self._base_requirements["pip+asv_runner"] = ""
+            self._base_requirements["pip+asv_runner"] = _host_asv_runner_spec()
             if asv_runner_path:
                 log.warning(
                     "ASV_RUNNER_PATH does not point"

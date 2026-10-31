@@ -1149,3 +1149,56 @@ def test_interpolate_multiple_wheels_raises(basic_conf, request):
 
     with pytest.raises(util.UserError, match="Found multiple wheels"):
         env._interpolate_commands(["python -c 'print({wheel_file})'"])
+
+
+@pytest.mark.parametrize(
+    "installed,expected",
+    [
+        ("0.3.2", "==0.3.2"),
+        ("0.3.3.dev4+g1a2b3c4", ""),
+        ("0.3.3.dev4", ""),
+        ("0.3.2+local", ""),
+        (None, ""),
+    ],
+)
+def test_host_asv_runner_spec(monkeypatch, installed, expected):
+    import importlib.metadata
+
+    real_version = importlib.metadata.version
+
+    def fake_version(name):
+        if name != "asv_runner":
+            return real_version(name)
+        if installed is None:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return installed
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    assert environment._host_asv_runner_spec() == expected
+
+
+@pytest.fixture
+def host_asv_runner_032(monkeypatch):
+    import importlib.metadata
+
+    real_version = importlib.metadata.version
+    monkeypatch.setattr(
+        importlib.metadata,
+        "version",
+        lambda name: "0.3.2" if name == "asv_runner" else real_version(name),
+    )
+    monkeypatch.delenv("ASV_RUNNER_PATH", raising=False)
+
+
+@pytest.mark.skipif(not HAS_VIRTUALENV, reason="Requires virtualenv")
+def test_base_requirement_asv_runner_follows_host(tmpdir, host_asv_runner_032):
+    conf = config.Config()
+    conf.env_dir = str(tmpdir.join("env"))
+    conf.environment_type = "virtualenv"
+    conf.pythons = [PYTHON_VER1]
+    conf.matrix = {}
+
+    (env,) = environment.get_environments(conf, None)
+    assert env._base_requirements["pip+asv_runner"] == "==0.3.2"
+    assert "pip+asv_runner" not in env.requirements
+    assert env.name == f"virtualenv-py{PYTHON_VER1}"
