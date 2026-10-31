@@ -947,6 +947,7 @@ class Environment:
     def _interpolate_and_run_commands(self, commands, default_cwd, extra_env=None):
         interpolated = self._interpolate_commands(commands)
 
+        outputs = []
         for cmd, env, return_codes, cwd in interpolated:
             environ = dict(os.environ)
             if extra_env is not None:
@@ -954,7 +955,7 @@ class Environment:
             environ.update(env)
             if cwd is None:
                 cwd = default_cwd
-            self.run_executable(
+            output = self.run_executable(
                 cmd[0],
                 cmd[1:],
                 timeout=self._install_timeout,
@@ -962,6 +963,8 @@ class Environment:
                 env=environ,
                 valid_return_codes=return_codes,
             )
+            outputs.append(output if isinstance(output, str) else '')
+        return outputs
 
     def checkout_project(self, repo, commit_hash):
         """
@@ -1032,9 +1035,25 @@ class Environment:
         if cmd:
             commit_name = repo.get_decorated_hash(commit_hash, 8)
             log.info(f"Installing {commit_name} into {self.name}")
-            self._interpolate_and_run_commands(
+            outputs = self._interpolate_and_run_commands(
                 cmd, default_cwd=build_dir, extra_env=self.build_env_vars
             )
+            # pip prints this, and keeps the installed files, when a local
+            # wheel has the same version as the installed distribution.
+            kept = [
+                line.strip()
+                for output in outputs
+                for line in output.splitlines()
+                if "already installed with the same version" in line
+            ]
+            if kept:
+                log.warning(
+                    f"pip did not install the build of {commit_name} into {self.name}, "
+                    "so the previously installed build would be benchmarked:\n"
+                    + "\n".join(kept)
+                    + "\nAdd --force-reinstall to install_command, or make "
+                    "uninstall_command uninstall that distribution."
+                )
 
     def _uninstall_project(self):
         """

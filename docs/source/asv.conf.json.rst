@@ -111,7 +111,8 @@ the provided wheel"), so the previous commit's build would be
 benchmarked again. A custom ``install_command`` that installs
 ``{wheel_file}`` should therefore pass ``--force-reinstall``, as the
 default does, or rely on an ``uninstall_command`` that removes the
-installed distribution.
+installed distribution. ``asv`` warns when pip reports that it kept the
+installed copy.
 
 The default ``uninstall_command`` also uninstalls the distribution of
 the wheel that was last installed from ``{build_cache_dir}``, since
