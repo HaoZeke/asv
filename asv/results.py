@@ -522,6 +522,10 @@ class Results:
 
             if n is not None:
                 new_result[j], new_stats[j] = compute_stats(s, n)
+            elif s is not None and len(s) > 1:
+                # Non-timing benchmark with values from several rounds
+                new_result[j], new_stats[j] = compute_stats(s, None)
+                del new_stats[j]['number']
 
         # Compress None lists to just None
         if all(x is None for x in new_result):

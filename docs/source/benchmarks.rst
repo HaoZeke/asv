@@ -205,6 +205,13 @@ Tracking benchmarks
 - ``unit``: The unit of the values returned by the benchmark.  Used
   for display in the web interface.
 
+- ``rounds``: How many times to call the benchmark, each time in a new
+  process (default: 1).  This also applies to memory and peak memory
+  benchmarks.  The values of all rounds are kept as samples and the
+  result is their median, see :ref:`tracking`.  Set it on the
+  benchmark function or with ``asv run -a rounds=N``; for these
+  benchmark types a ``rounds`` class attribute is not used.
+
 
 Environment variables
 ---------------------

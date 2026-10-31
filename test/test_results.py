@@ -341,6 +341,47 @@ def test_remove_samples():
     assert r.get_result_samples(benchmark2['name'], benchmark2['params']) == [None, None, None]
 
 
+def test_non_timing_samples(tmpdir):
+    benchmark = {'name': 'track_a', 'version': '1', 'params': [['1', '2']]}
+
+    def track_result(values):
+        return runner.BenchmarkResult(
+            result=values,
+            samples=[[v] if v is not None else None for v in values],
+            number=[None, None],
+            profile=None,
+            errcode=0,
+            stderr='',
+        )
+
+    r = results.Results({'machine': 'mach'}, {}, 'aaaa', 1000000, 'py', 'env', {})
+    r.add_result(benchmark, track_result([3, None]), record_samples=True)
+    assert r.get_result_value('track_a', benchmark['params']) == [3, None]
+    assert r.get_result_stats('track_a', benchmark['params']) == [None, None]
+
+    for values in ([1, None], [2, None]):
+        r.add_result(benchmark, track_result(values), record_samples=True, append_samples=True)
+
+    assert r.get_result_samples('track_a', benchmark['params']) == [[3, 1, 2], None]
+    assert r.get_result_value('track_a', benchmark['params']) == [2, None]
+    stats = r.get_result_stats('track_a', benchmark['params'])
+    assert stats[0]['repeat'] == 3
+    assert stats[0]['q_25'] == 1.5
+    assert 'number' not in stats[0]
+    assert stats[1] is None
+
+    r.save(str(tmpdir))
+    r2 = results.Results.load(join(str(tmpdir), r._filename))
+    assert r2.get_result_value('track_a', benchmark['params']) == [2, None]
+    assert r2.get_result_samples('track_a', benchmark['params']) == [[3, 1, 2], None]
+    assert r2.get_result_stats('track_a', benchmark['params'])[0] == _truncate_floats(stats[0])
+
+    r.add_result(benchmark, track_result([5, 7]), record_samples=False, append_samples=True)
+    assert r.get_result_samples('track_a', benchmark['params']) == [None, None]
+    assert r.get_result_value('track_a', benchmark['params']) == [2.5, 7]
+    assert r.get_result_stats('track_a', benchmark['params'])[0]['repeat'] == 4
+
+
 def test_table_formatting():
     benchmark = {'params': [], 'param_names': [], 'unit': 's'}
     result = []

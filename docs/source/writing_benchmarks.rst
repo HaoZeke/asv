@@ -510,6 +510,10 @@ memory usage you want to track::
    ``setup`` routine, which may confound the benchmark results. One
    way to avoid this is to use ``setup_cache`` instead.
 
+With several rounds (see :ref:`tracking`), each sample is the peak
+resident size of one benchmark process, and the result is the median
+of these peaks.
+
 For details, see :doc:`benchmarks`.
 
 
@@ -581,6 +585,19 @@ garbage collector at a given state::
     def track_num_objects():
         return len(gc.get_objects())
     track_num_objects.unit = "objects"
+
+Tracking, memory and peak memory benchmarks produce one value per
+call, and by default run in a single round.  With more rounds (``asv
+run -a rounds=4``, or a ``rounds`` attribute set on the benchmark
+function), the benchmark is called once per round, each time in a new
+process, and the value of every round is a sample: the result is the
+median of the samples, and their statistics are computed as for
+timing benchmarks, so that ``asv compare`` and ``asv continuous`` can
+tell a change from noise.  ``--append-samples`` adds the values of a
+new run to the samples already stored.  As for timing benchmarks, the
+samples themselves are saved only with ``--record-samples`` (the
+default for ``asv continuous``).  A result made of a single value is
+stored as is, without statistics.
 
 For details, see :doc:`benchmarks`.
 

@@ -675,7 +675,14 @@ def _run_benchmark_single_param(benchmark, spawner, param_idx, profile, extra_pa
                 number = data['number']
             else:
                 result = data
-                samples = None
+                if (
+                    isinstance(data, (int, float))
+                    and not isinstance(data, bool)
+                    and math.isfinite(data)
+                ):
+                    samples = [data]
+                else:
+                    samples = None
                 number = None
 
         if benchmark['params'] and out:

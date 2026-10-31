@@ -550,6 +550,145 @@ def test_run_quick_progress_completes(capsys, existing_env_conf):
     assert "[100.00%]" in text
 
 
+ROUNDS_BENCHMARK = """
+import json
+
+VALUES = {values!r}
+
+
+def next_value(name):
+    with open(VALUES) as f:
+        values = json.load(f)
+    value = values[name].pop(0)
+    with open(VALUES, 'w') as f:
+        json.dump(values, f)
+    return value
+
+
+def track_spread():
+    return next_value('spread')
+
+
+def track_shift():
+    return next_value('shift')
+
+
+def peakmem_rounds():
+    [0] * 100000
+"""
+
+
+def _run_rounds(conf, machine_file, commit_hash, values, *args):
+    conf.matrix = {}
+    values_file = os.path.abspath('rounds_values.json')
+    with open(join('benchmark', 'rounds_examples.py'), 'w') as f:
+        f.write(ROUNDS_BENCHMARK.format(values=values_file))
+    util.write_json(values_file, values)
+
+    tools.run_asv_with_conf(
+        conf,
+        'run',
+        '--python=same',
+        f'--set-commit-hash={commit_hash}',
+        '--bench=rounds_examples',
+        '--show-stderr',
+        *args,
+        _machine_file=machine_file,
+    )
+
+    (result_fn,) = glob.glob(
+        join(conf.results_dir, 'orangutan', f'{commit_hash[: conf.hash_length]}-*.json')
+    )
+    return results.Results.load(result_fn)
+
+
+def test_run_non_timing_rounds(existing_env_conf):
+    tmpdir, local, conf, machine_file = existing_env_conf
+    commit_hash = get_repo(conf).get_hash_from_name(util.git_default_branch())
+    spread = 'rounds_examples.track_spread'
+    peakmem = 'rounds_examples.peakmem_rounds'
+
+    # Each round of a track_ benchmark gives one sample
+    res = _run_rounds(
+        conf,
+        machine_file,
+        commit_hash,
+        {'spread': [10, 20, 40], 'shift': [1, 1, 1]},
+        '-a',
+        'rounds=3',
+        '--record-samples',
+    )
+    assert res.get_result_samples(spread, []) == [[10, 20, 40]]
+    assert res.get_result_value(spread, []) == [20]
+    (stats,) = res.get_result_stats(spread, [])
+    assert stats['repeat'] == 3
+    assert stats['q_25'] == 15
+    assert stats['q_75'] == 30
+    assert stats['ci_99_a'] <= 10 and stats['ci_99_b'] >= 40
+    assert 'number' not in stats
+
+    (peakmem_samples,) = res.get_result_samples(peakmem, [])
+    assert len(peakmem_samples) == 3
+    assert res.get_result_value(peakmem, []) == [sorted(peakmem_samples)[1]]
+    assert res.get_result_stats(peakmem, [])[0]['repeat'] == 3
+
+    # Without --record-samples, the samples only go into the statistics
+    res = _run_rounds(
+        conf,
+        machine_file,
+        commit_hash,
+        {'spread': [10, 20, 40], 'shift': [1, 1, 1]},
+        '-a',
+        'rounds=3',
+    )
+    assert res.get_result_samples(spread, []) == [None]
+    assert res.get_result_value(spread, []) == [20]
+    assert res.get_result_stats(spread, [])[0]['repeat'] == 3
+
+    # A single round stores the value as before, without statistics
+    res = _run_rounds(
+        conf,
+        machine_file,
+        commit_hash,
+        {'spread': [10], 'shift': [1]},
+        '-a',
+        'rounds=1',
+        '--record-samples',
+    )
+    assert res.get_result_samples(spread, []) == [[10]]
+    assert res.get_result_value(spread, []) == [10]
+    assert res.get_result_stats(spread, []) == [None]
+
+
+def test_compare_non_timing_rounds(capsys, existing_env_conf):
+    tmpdir, local, conf, machine_file = existing_env_conf
+    r = get_repo(conf)
+    base = r.get_hash_from_name(f'{util.git_default_branch()}~1')
+    head = r.get_hash_from_name(util.git_default_branch())
+
+    # The last rounds give 100 -> 200 for track_spread, but the medians
+    # 100 -> 150 are within the spread of the samples
+    for commit_hash, values in [
+        (base, {'spread': [150, 50, 100], 'shift': [100, 101, 99]}),
+        (head, {'spread': [50, 150, 200], 'shift': [200, 201, 199]}),
+    ]:
+        _run_rounds(conf, machine_file, commit_hash, values, '-a', 'rounds=3', '--record-samples')
+
+    capsys.readouterr()
+    tools.run_asv_with_conf(conf, 'compare', base, head)
+    text, err = capsys.readouterr()
+
+    rows = {}
+    for line in text.splitlines():
+        if line.startswith('|'):
+            cols = [c.strip() for c in line.strip('|').split('|')]
+            rows[cols[-1]] = cols
+    assert rows['rounds_examples.track_spread'][0] == '', text
+    assert rows['rounds_examples.track_spread'][3].rstrip('?') == '~1.50', text
+    assert rows['rounds_examples.track_shift'][0] == '+', text
+    assert rows['rounds_examples.track_shift'][3].rstrip('?') == '2.00', text
+
+
 def test_run_python_arg():
     parser, subparsers = make_argparser()
 
