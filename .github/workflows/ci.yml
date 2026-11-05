@@ -13,18 +13,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
+        os: ["ubuntu-24.04", "macos-latest"]
         python-version: ["3.9", "3.14", "pypy-3.11"]
     timeout-minutes: 80
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       # We need Python 3.9 to always be installed, so tests with
       # multiple environments can run.
       - name: Set up Python 3.9
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: 3.9
 
@@ -36,7 +36,7 @@ jobs:
           pip install mercurial
 
       - name: Set up Python version ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -63,11 +63,11 @@ jobs:
       fail-fast: false
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: mamba-org/setup-micromamba@v2.0.7
+      - uses: mamba-org/setup-micromamba@v3.2.1
         with:
           init-shell: >-
             bash
@@ -92,11 +92,11 @@ jobs:
         shell: micromamba-shell {0}
 
   docs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.x'
           cache: pip
