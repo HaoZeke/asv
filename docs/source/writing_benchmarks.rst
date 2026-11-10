@@ -84,7 +84,9 @@ is well-formatted, without actually running any benchmarks::
 
     When running benchmarks reliant on CUDA, the ``--launch-method`` flag should be set 
     to ``spawn``. This prevents the child process from inheriting the CUDA context of 
-    the parent process.
+    the parent process. ``spawn`` is the default since asv 0.6.6; to make it explicit
+    for every command, set ``"launch_method": "spawn"`` in ``asv.conf.json`` (see
+    :ref:`conf-reference`).
 
 .. _setup-and-teardown:
 

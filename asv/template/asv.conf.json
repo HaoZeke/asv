@@ -193,7 +193,7 @@
     // },
 
     // launch_method:
-    // How to launch benchmarks. Choices: auto, spawn, forkserver
-    // This parameter may be overwritten by command line arguments
+    // How to launch benchmarks. Choices: auto (currently spawn), spawn, forkserver
+    // The --launch-method command line option takes precedence
     // "launch_method": "auto",
 }

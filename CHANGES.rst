@@ -22,6 +22,11 @@ Other Changes and Additions
   ``version_alts`` backfill, and ``setup_cache``/skip/``env`` fixes.
   Avoids 0.2.2–0.2.4 regressions (swallowed timeraw stderr; token-only
   ``version`` breaking discovery tests / result identity). (#1595)
+- The default launch method (``auto``) is now ``spawn`` on all platforms.
+  Previously it was ``forkserver`` wherever ``fork`` was available, except
+  on macOS. Suites with expensive imports may report different timings;
+  ``--launch-method forkserver`` or ``"launch_method": "forkserver"`` in
+  ``asv.conf.json`` (#1560) restores the previous behaviour.
 
 
 asv 0.6.5 (2025-09-12)

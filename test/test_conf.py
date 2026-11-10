@@ -35,6 +35,40 @@ def test_config_default_install_timeout():
     assert conf.install_timeout == 600
 
 
+def test_launch_method_config_and_docs():
+    conf = config.Config.from_json(
+        {
+            "version": 1,
+            "project": "asv",
+            "repo": ".",
+            "launch_method": "spawn",
+        }
+    )
+    assert conf.launch_method == "spawn"
+
+    docs = join(dirname(__file__), "..", "docs", "source", "asv.conf.json.rst")
+    changes = join(dirname(__file__), "..", "CHANGES.rst")
+    with open(docs, encoding="utf-8") as fh:
+        text = fh.read()
+    assert "``launch_method``" in text
+    for choice in ("spawn", "forkserver", "auto"):
+        assert choice in text
+    assert "--launch-method" in text
+    assert "Since asv 0.6.6" in text
+    assert "except on macOS" in text
+    assert "macOS and Windows" not in text
+    with open(changes, encoding="utf-8") as fh:
+        notes = fh.read()
+    assert "The default launch method (``auto``) is now ``spawn``" in notes
+    fragment = join(
+        dirname(__file__), "..", "changelog.d", "launch_method_docs.misc.rst"
+    )
+    with open(fragment, encoding="utf-8") as fh:
+        fragment_text = fh.read()
+    assert "launch_method" in fragment_text
+    assert "0.6.6" in fragment_text
+
+
 class CustomCommand(Command):
     @classmethod
     def setup_arguments(cls, subparsers):

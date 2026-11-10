@@ -292,8 +292,8 @@ def add_launch_method(parser):
         default=None,
         help=(
             "How to launch benchmarks. Choices: auto, spawn, forkserver. "
-            "By default asv will look in the asv.conf.json file, if not, auto "
-            "will be used."
+            "auto currently means spawn. Overrides the 'launch_method' key in "
+            "asv.conf.json; if neither is given, auto is used."
         ),
 
     )
