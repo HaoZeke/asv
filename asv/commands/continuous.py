@@ -92,6 +92,7 @@ class Continuous(Command):
             only_changed=args.only_changed,
             sort=args.sort,
             use_stats=args.use_stats,
+            mark_few_samples=args.mark_few_samples,
             show_stderr=args.show_stderr,
             bench=args.bench,
             attribute=args.attribute,
@@ -116,6 +117,7 @@ class Continuous(Command):
         only_changed=True,
         sort='ratio',
         use_stats=True,
+        mark_few_samples=True,
         show_stderr=False,
         bench=None,
         attribute=None,
@@ -205,6 +207,7 @@ class Continuous(Command):
             only_changed=only_changed,
             sort=sort,
             commit_names=commit_names,
+            mark_few_samples=mark_few_samples,
         )
         worsened, improved = status
 
