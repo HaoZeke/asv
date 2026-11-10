@@ -132,6 +132,9 @@ class Profile(Command):
         if benchmark is None:
             raise util.UserError("Must specify benchmark to run")
 
+        if launch_method is None:
+            launch_method = conf.launch_method or 'auto'
+
         environments = list(get_environments(conf, env_spec))
 
         if is_existing_only(environments):
