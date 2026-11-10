@@ -162,6 +162,13 @@ A benchmark suite directory has the following layout.  The
 
       - ``env_vars``: Environment variable dictionary of the environment.
 
+      - ``env_inventory``: Optional. Dictionary from normalized
+        distribution name (PEP 503) to the version installed in the
+        environment when the benchmarks were last run, as reported by
+        ``importlib.metadata`` in the environment's Python. Includes
+        ``asv_runner``, the build tools and unpinned matrix entries.
+        Missing in files written by older versions of asv.
+
       - ``durations``: Duration information for build and setup-cache timings.
 
       - ``result_columns``: List of column names for the ``results`` dictionary.

@@ -944,6 +944,67 @@ def test_install_success(
     env.run(['-c', 'import asv_test_repo as t, sys; sys.exit(0 if t.dummy_value == 0 else 1)'])
 
 
+def test_installed_distributions(
+    tmpdir, request: pytest.FixtureRequest, dummy_packages, monkeypatch
+):
+    tmpdir = str(tmpdir)
+
+    dvcs = generate_test_repo(tmpdir, [0, 1], dvcs_type='git')
+    commit_hashes = dvcs.get_branch_hashes()[::-1]
+
+    conf = config.Config()
+    conf.env_dir = os.path.join(tmpdir, "env")
+    conf.environment_type = request.config.getoption('environment_type')
+    conf.conda_channels = ["conda-forge"]
+    conf.pythons = [PYTHON_VER2]
+    conf.repo = os.path.abspath(dvcs.path)
+    conf.matrix = {
+        "pip+asv_dummy_test_package_1": [""],
+        "pip+asv_dummy_test_package_2": [""],
+    }
+    conf.build_cache_size = 0
+
+    repo = get_repo(conf)
+
+    env = next(iter(environment.get_environments(conf, None)))
+    env.create()
+
+    # Metadata in the working directory must not be reported as installed
+    os.makedirs(os.path.join(tmpdir, "cwd", "not_installed-9.9.egg-info"))
+    with open(os.path.join(tmpdir, "cwd", "not_installed-9.9.egg-info", "PKG-INFO"), "w") as f:
+        f.write("Metadata-Version: 1.0\nName: not_installed\nVersion: 9.9\n")
+    monkeypatch.chdir(os.path.join(tmpdir, "cwd"))
+
+    calls = []
+    orig_run = env.run
+
+    def counting_run(args, **kwargs):
+        calls.append(args)
+        return orig_run(args, **kwargs)
+
+    monkeypatch.setattr(env, "run", counting_run)
+
+    runner_version = env.run(
+        ['-c', 'import importlib.metadata as m; print(m.version("asv_runner"))']
+    ).strip()
+    del calls[:]
+
+    for version, commit_hash in enumerate(commit_hashes):
+        env.install_project(conf, repo, commit_hash)
+
+        dists = env.get_installed_distributions()
+        assert dists["asv-test-repo"] == str(version)
+        assert dists["asv-runner"] == runner_version
+        assert dists["asv-dummy-test-package-1"] == DUMMY1_VERSION
+        assert dists["asv-dummy-test-package-2"] in DUMMY2_VERSIONS
+        assert "pip" in dists
+        assert "build" in dists
+        assert "not-installed" not in dists
+
+        assert env.get_installed_distributions() == dists
+        assert len(calls) == version + 1
+
+
 def test_install_env_matrix_values(
     tmpdir, request: pytest.FixtureRequest, skip_virtualenv: pytest.FixtureRequest
 ):

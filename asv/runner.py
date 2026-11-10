@@ -100,6 +100,33 @@ def skip_benchmarks(benchmarks, env, results=None):
     return results
 
 
+def record_env_inventory(env, results):
+    """
+    Store the distributions installed in an environment in a Results object.
+
+    If they cannot be determined, a warning is logged and the inventory
+    is cleared, so that one recorded for an earlier run is not kept.
+
+    Parameters
+    ----------
+    env : Environment
+        Environment the benchmarks run in, with the project installed.
+    results : Results
+        Where to store the inventory.
+
+    """
+    try:
+        inventory = env.get_installed_distributions()
+    except util.ProcessError as exc:
+        reason = (exc.stderr or "").strip() or f"exit status {exc.retcode}"
+        log.warning(f"Could not list installed distributions in {env.name}: {reason}")
+        inventory = None
+    except (OSError, ValueError) as exc:
+        log.warning(f"Could not list installed distributions in {env.name}: {exc}")
+        inventory = None
+    results.set_env_inventory(inventory)
+
+
 def run_benchmarks(
     benchmarks,
     env,
