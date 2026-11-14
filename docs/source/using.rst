@@ -753,9 +753,11 @@ benchmarks still run. ``--bench`` and several environments are part of
 that same rotation.
 
 With ``--format=latex``, ``--columns`` chooses the cells. ``ci`` is the
-ratio and its interval, and ``aa`` is the A/A band. Both are siunitx
-``\\num`` values. The default columns stay before, after, ratio, and
-benchmark.
+ratio and its interval, and ``aa`` is the A/A band. ``interval`` is the
+bracket alone, ``rounds`` is how many interleaved rounds were recorded,
+and ``verdict`` is worse, better, or unchanged. The numeric cells are
+siunitx ``\\num`` values. The default columns stay before, after, ratio,
+and benchmark.
 
 .. code-block:: console
 

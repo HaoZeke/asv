@@ -287,6 +287,31 @@ def format_latex_ratio(mark, ratio):
     return ' '.join(parts) + ' ' + body
 
 
+def format_latex_bounds(ci):
+    """Format the interval alone as ``[\\num{low}, \\num{high}]``."""
+    if ci is None:
+        return 'n/a'
+    _point, low, high = ci
+    return rf'[\num{{{low:.2f}}}, \num{{{high:.2f}}}]'
+
+
+_VERDICT_TEXT = {
+    '+': 'worse',
+    '-': 'better',
+    ' ': 'unchanged',
+    '!': 'failed',
+    '*': 'fixed',
+    'x': 'incomparable',
+}
+
+
+def format_latex_verdict(mark):
+    """Word for the comparison mark. ``+`` is a slowdown."""
+    label = '' if mark is None else str(mark)
+    text = _VERDICT_TEXT.get(label, label.strip() or 'unchanged')
+    return latex_escape(text)
+
+
 def format_latex_interval(ci, mark=' '):
     """
     Format ``(point, low, high)`` as siunitx numbers.
@@ -307,7 +332,17 @@ def format_latex_interval(ci, mark=' '):
     return label + ' ' + body
 
 
-_LATEX_COLUMN_CHOICES = ('before', 'after', 'ratio', 'ci', 'aa', 'benchmark')
+_LATEX_COLUMN_CHOICES = (
+    'before',
+    'after',
+    'ratio',
+    'ci',
+    'interval',
+    'aa',
+    'rounds',
+    'verdict',
+    'benchmark',
+)
 _LATEX_COLUMN_DEFAULT = ('before', 'after', 'ratio', 'benchmark')
 
 
@@ -315,7 +350,10 @@ def latex_columns(spec):
     """
     Parse a comma-separated ``--columns`` list for the LaTeX table.
 
-    ``ci`` is the ratio with its bootstrap interval. ``aa`` is the A/A band.
+    ``ci`` is the ratio with its bootstrap interval. ``interval`` is that
+    interval without the point. ``aa`` is the A/A band. ``rounds`` is
+    how many interleaved rounds were recorded. ``verdict`` is worse,
+    better, or unchanged.
     """
     if spec is None:
         return _LATEX_COLUMN_DEFAULT
@@ -331,7 +369,7 @@ def latex_columns(spec):
 
 
 def _latex_colspec(columns):
-    return ''.join('l' if column == 'benchmark' else 'r' for column in columns)
+    return ''.join('l' if column in ('benchmark', 'verdict') else 'r' for column in columns)
 
 
 def _split_ratio_text(ratio):
@@ -349,7 +387,7 @@ def _split_ratio_text(ratio):
 
 
 def _latex_row(parts, columns):
-    mark_on_ratio = 'ratio' in columns
+    mark_on_ratio = 'ratio' in columns and 'verdict' not in columns
     cells = []
     for column in columns:
         if column == 'before':
@@ -357,13 +395,22 @@ def _latex_row(parts, columns):
         elif column == 'after':
             cells.append(parts['after'])
         elif column == 'ratio':
-            text = parts['ratio_point'] if 'ci' in columns else parts['ratio_full']
-            cells.append(format_latex_ratio(parts['mark'], text))
+            point_only = 'ci' in columns or 'interval' in columns
+            text = parts['ratio_point'] if point_only else parts['ratio_full']
+            mark = ' ' if 'verdict' in columns else parts['mark']
+            cells.append(format_latex_ratio(mark, text))
         elif column == 'ci':
-            mark = ' ' if mark_on_ratio else parts['mark']
+            mark = ' ' if mark_on_ratio or 'verdict' in columns else parts['mark']
             cells.append(format_latex_interval(parts['ci'], mark))
+        elif column == 'interval':
+            cells.append(format_latex_bounds(parts['ci']))
         elif column == 'aa':
             cells.append(format_latex_interval(parts['aa']))
+        elif column == 'rounds':
+            rounds = parts.get('rounds')
+            cells.append('n/a' if rounds is None else str(rounds))
+        elif column == 'verdict':
+            cells.append(format_latex_verdict(parts['mark']))
         else:
             cells.append(parts['benchmark'])
     return cells
@@ -437,10 +484,12 @@ class Compare(Command):
             '--columns',
             default=None,
             help="""With --format=latex, comma-separated columns to emit.
-            Choices: before, after, ratio, ci, aa, benchmark. The default
-            is before,after,ratio,benchmark. ci is the ratio and its
-            bootstrap interval, and aa is the A/A band. Both use siunitx
-            \\num values.""",
+            Choices: before, after, ratio, ci, interval, aa, rounds,
+            verdict, benchmark. The default is before,after,ratio,benchmark.
+            ci is the ratio and its bootstrap interval. interval is the
+            bracket alone. rounds is how many interleaved rounds were
+            recorded, and verdict is worse, better, or unchanged. ci, interval,
+            and aa use siunitx \\num values.""",
         )
 
         parser.add_argument(
@@ -605,6 +654,7 @@ class Compare(Command):
         failed_notes = []
         disk_ci = {}
         disk_band = {}
+        disk_rounds = {}
         aa_rows = []
 
         def _env_allowed(env_name):
@@ -641,6 +691,12 @@ class Compare(Command):
                 for bench_name, rounds in result.failed_rounds.items():
                     for number in rounds:
                         failed_notes.append((bench_name, label, number))
+                if not is_aa:
+                    for key, rounds in result.round_samples.items():
+                        count = len(rounds) if rounds else None
+                        params = result.get_result_params(key)
+                        for name, _ignored in unroll_result(key, params, None):
+                            disk_rounds[(name, machine_env)] = count
                 if collect_stored and not is_aa:
                     comp = result.get_comparison(other_hash)
                     if comp:
@@ -925,6 +981,7 @@ class Compare(Command):
                 'mark': mark,
                 'ci': ci_value,
                 'aa': band_value,
+                'rounds': disk_rounds.get(benchmark),
                 'benchmark': latex_escape(benchmark_name),
             }
             # Keep the text cells alongside the LaTeX row so --sort still
@@ -973,7 +1030,10 @@ class Compare(Command):
             'after': _latex_revision_header('After', hash_2, name_2),
             'ratio': 'Ratio',
             'ci': 'Ratio CI',
+            'interval': 'Interval',
             'aa': 'A/A',
+            'rounds': 'Rounds',
+            'verdict': 'Verdict',
             'benchmark': 'Benchmark',
         }
         if columns is None:

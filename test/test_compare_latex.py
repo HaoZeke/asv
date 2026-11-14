@@ -559,3 +559,93 @@ def test_compare_latex_ci_and_aa_columns(capsys, tmpdir):
             table_format='github',
             columns='ci',
         )
+
+
+def test_compare_latex_adaptive_rounds_verdict(capsys, tmpdir):
+    """An adaptive stop's recorded rounds, ratio, interval, and verdict."""
+    results_dir = os.path.join(str(tmpdir), 'results')
+    machine_dir = os.path.join(results_dir, 'cheetah')
+    os.makedirs(machine_dir)
+    util.write_json(
+        os.path.join(machine_dir, 'machine.json'),
+        {'machine': 'cheetah'},
+        api_version=1,
+    )
+    util.write_json(
+        os.path.join(results_dir, 'benchmarks.json'),
+        {
+            'bench.time_it': {
+                'name': 'bench.time_it',
+                'params': [],
+                'param_names': [],
+                'unit': 'seconds',
+                'version': '1',
+            }
+        },
+        api_version=2,
+    )
+    params = {'machine': 'cheetah', 'python': '3.12'}
+    benchmark = {'name': 'bench.time_it', 'version': '1', 'params': []}
+    parent = 'a' * 40
+    head = 'b' * 40
+
+    def add_rounds(commit, sample, env_name, rounds):
+        result = Results(params, {}, commit, 1, '3.12', env_name, {})
+        for number in range(1, rounds + 1):
+            result.add_result(
+                benchmark,
+                runner.BenchmarkResult(
+                    result=[sample],
+                    samples=[[sample, sample, sample, sample]],
+                    number=[None],
+                    errcode=0,
+                    stderr='',
+                    profile=None,
+                ),
+                record_samples=True,
+                append_samples=number > 1,
+                round_number=number,
+            )
+        return result
+
+    before = add_rounds(parent, 1.0, 'py3', 6)
+    after = add_rounds(head, 1.03, 'py3', 6)
+    repeated = add_rounds(parent, 1.0, 'py3~aa', 6)
+    after.set_comparison(
+        parent,
+        {'bench.time_it': [[1.03, 1.02, 1.04]]},
+        {'bench.time_it': [[1.0, 0.99, 1.01]]},
+    )
+    before.save(results_dir)
+    after.save(results_dir)
+    repeated.save(results_dir)
+
+    os.chdir(str(tmpdir))
+    conf = config.Config.from_json(
+        {
+            'results_dir': results_dir,
+            'repo': tools.generate_test_repo(str(tmpdir)).path,
+            'project': 'asv',
+            'environment_type': 'virtualenv',
+        }
+    )
+    worsened, improved = Compare.print_table(
+        conf,
+        parent,
+        head,
+        factor=1.1,
+        split=False,
+        machine='cheetah',
+        only_changed=False,
+        table_format='latex',
+        columns='rounds,ratio,interval,verdict,benchmark',
+    )
+    text, _err = capsys.readouterr()
+    assert worsened
+    assert not improved
+    assert 'Rounds' in text
+    assert 'Interval' in text
+    assert 'Verdict' in text
+    assert r'6 & \num{1.03} & [\num{1.02}, \num{1.04}] & worse' in text
+    assert r'bench.time\_it' in text
+    assert text.count(r'bench.time\_it') == 1
