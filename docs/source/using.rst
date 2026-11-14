@@ -714,6 +714,51 @@ each group is preceded by a ``%`` comment naming that group.
    $ asv compare v0.1 v0.2 --format=latex
    $ asv compare v0.1 v0.2 --format=latex --only-body > body.tex
 
+JSON output
+~~~~~~~~~~~
+
+``asv compare --format=json`` writes one record per benchmark and
+parameter combination. Markdown and LaTeX are rendered from that same
+list. ``schema_version`` is ``1``.
+
+.. code-block:: json
+
+   {
+     "schema_version": 1,
+     "before": {"commit": "<40-character hash>", "label": "<main>"},
+     "after": {"commit": "<40-character hash>", "label": ""},
+     "records": [
+       {
+         "name": "bench.time_slow",
+         "params": [],
+         "machine": "ci",
+         "environment": "virtualenv-py3.12",
+         "before": {"median": 0.00201, "unit": "seconds"},
+         "after": {"median": 0.00207, "unit": "seconds"},
+         "ratio": 1.03,
+         "ratio_ci": [1.03, 1.02, 1.04],
+         "rounds": 6,
+         "verdict": "slower",
+         "aa_band": [1.0, 0.99, 1.01]
+       }
+     ]
+   }
+
+``verdict`` is ``slower``, ``faster``, ``unchanged``, or ``failed``.
+A new failure, a repaired failure, differing benchmark versions, and
+a missing measurement are ``failed``. The LaTeX ``verdict`` column
+prints ``worse``, ``better``, ``unchanged``, ``failed``, ``fixed``, or
+``incomparable`` for that same record, and the markdown table keeps
+``+``, ``-``, ``!``, ``*``, and ``x``. ``ratio`` is the median ratio,
+and ``ratio_ci`` and ``aa_band`` are ``[point, low, high]`` or
+``null``. ``rounds`` is how many interleaved rounds were recorded, or
+``null`` when the result did not store them. ``params`` is the
+parameter combination, empty for a benchmark with no parameters.
+
+.. code-block:: console
+
+   $ asv compare v0.1 v0.2 --format=json
+
 Continuous comparisons
 ~~~~~~~~~~~~~~~~~~~~~~
 

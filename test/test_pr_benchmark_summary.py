@@ -148,9 +148,16 @@ def _job_summary(repo, home, base, head):
     )
     # A detected slowdown exits 1. A benchmark failure exits 2.
     assert continuous.returncode in (0, 1), continuous.stdout + "\n" + continuous.stderr
-    compared = asv("compare", base, head, "--machine", "ci")
-    assert compared.returncode == 0, compared.stdout + "\n" + continuous.stdout
-    return compared.stdout, continuous.stdout + continuous.stderr
+
+    def compare(*extra):
+        result = asv("compare", base, head, "--machine", "ci", *extra)
+        assert result.returncode == 0, result.stdout + "\n" + continuous.stdout
+        return result.stdout
+
+    markdown = compare()
+    latex = compare("--format", "latex", "--columns", "verdict,benchmark,ratio")
+    payload = json.loads(compare("--format", "json"))
+    return markdown, latex, payload, continuous.stdout + continuous.stderr
 
 
 @pytest.mark.skipif(shutil.which("gcc") is None, reason="needs a C compiler")
@@ -188,7 +195,20 @@ def test_pull_request_summary_flags_only_the_slowdown(tmpdir):
     subprocess.check_call(["git", "clone", "--bare", str(repo), str(bare)])
     _git(repo, "remote", "add", "origin", str(bare))
 
-    summary, log = _job_summary(repo, home, base, head)
+    summary, latex, payload, log = _job_summary(repo, home, base, head)
+    assert payload["schema_version"] == 1
+    by_name = {record["name"]: record for record in payload["records"]}
+    slow_rec = by_name["bench.time_slow"]
+    same_rec = by_name["bench.time_same"]
+    assert slow_rec["verdict"] == "slower"
+    assert same_rec["verdict"] == "unchanged"
+    assert slow_rec["params"] == []
+    assert slow_rec["rounds"] is not None
+    assert slow_rec["ratio_ci"][0] == pytest.approx(1.03, abs=0.02)
+    assert slow_rec["aa_band"] is not None
+    assert slow_rec["before"]["unit"] == "seconds"
+    assert slow_rec["after"]["median"] > slow_rec["before"]["median"]
+
     slow = [line for line in summary.splitlines() if "time_slow" in line]
     same = [line for line in summary.splitlines() if "time_same" in line]
     assert len(slow) == 1, summary
@@ -196,3 +216,8 @@ def test_pull_request_summary_flags_only_the_slowdown(tmpdir):
     assert slow[0].split("|")[1].strip() == "+", summary
     assert same[0].split("|")[1].strip() == "", summary
     assert "1.03" in slow[0]
+    # LaTeX is rendered from the same records. Its verdict column keeps
+    # the paper words: a JSON ``slower`` row is ``worse``, and
+    # ``unchanged`` stays ``unchanged``.
+    assert "worse" in latex and "time\\_slow" in latex
+    assert "unchanged" in latex and "time\\_same" in latex

@@ -39,6 +39,46 @@ def _format_param_for_display(param):
     return ' '.join(text.split())
 
 
+# Machine-readable compare output. Markdown and LaTeX render these records.
+COMPARE_SCHEMA_VERSION = 1
+
+
+def _param_combos(params):
+    if not params:
+        return [()]
+    return list(itertools.product(*params))
+
+
+def _json_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    return value
+
+
+def _json_triple(ci):
+    if ci is None:
+        return None
+    return [_json_number(item) for item in ci[:3]]
+
+
+def _verdict_name(mark, before, after):
+    """
+    ``slower``, ``faster``, ``unchanged``, or ``failed``.
+
+    A new failure, a repaired failure, differing benchmark versions,
+    and a missing measurement are ``failed``.
+    """
+    if mark == '+':
+        return 'slower'
+    if mark == '-':
+        return 'faster'
+    if mark in ('!', '*', 'x') or _isna(before) or _isna(after):
+        return 'failed'
+    return 'unchanged'
+
+
 def unroll_result(benchmark_name, params, *values):
     """
     Iterate through parameterized result values
@@ -386,6 +426,52 @@ def _split_ratio_text(ratio):
     return point
 
 
+def _github_cells(record):
+    """Markdown cells for one comparison record."""
+    mark = record['mark']
+    return [
+        mark if str(mark).strip() else ' ',
+        human_value(record['before_raw'], record['unit'], err=record['before_err']),
+        human_value(record['after_raw'], record['unit'], err=record['after_err']),
+        record['ratio_text'],
+        record['display_name'],
+    ]
+
+
+def _latex_parts(record):
+    """LaTeX cells for one comparison record."""
+    return {
+        'before': format_latex_value(
+            record['before_raw'], record['unit'], err=record['before_err']
+        ),
+        'after': format_latex_value(record['after_raw'], record['unit'], err=record['after_err']),
+        'ratio_full': record['ratio_text'],
+        'ratio_point': _split_ratio_text(record['ratio_text']),
+        'mark': record['mark'],
+        'ci': record['ci'],
+        'aa': record['band'],
+        'rounds': record['rounds'],
+        'benchmark': latex_escape(record['display_name']),
+    }
+
+
+def _public_record(record):
+    """Fields of the versioned JSON schema."""
+    return {
+        'name': record['name'],
+        'params': record['params'],
+        'machine': record['machine'],
+        'environment': record['environment'],
+        'before': record['before'],
+        'after': record['after'],
+        'ratio': record['ratio'],
+        'ratio_ci': record['ratio_ci'],
+        'rounds': record['rounds'],
+        'verdict': record['verdict'],
+        'aa_band': record['aa_band'],
+    }
+
+
 def _latex_row(parts, columns):
     mark_on_ratio = 'ratio' in columns and 'verdict' not in columns
     cells = []
@@ -472,12 +558,13 @@ class Compare(Command):
         parser.add_argument(
             '--format',
             dest='table_format',
-            choices=('github', 'latex'),
+            choices=('github', 'latex', 'json'),
             default='github',
-            help="""Output format for the comparison table. 'github'
-            (default) is a GitHub-flavored markdown table. 'latex' is a
-            booktabs tabular with before, after, ratio, and benchmark
-            columns.""",
+            help="""Output format for the comparison. 'github' (default)
+            is a GitHub-flavored markdown table. 'latex' is a booktabs
+            tabular. 'json' is schema_version 1, one record per benchmark
+            and parameter combination. Markdown and LaTeX are rendered
+            from those same records.""",
         )
 
         parser.add_argument(
@@ -628,7 +715,7 @@ class Compare(Command):
         stored_band=None,
         columns=None,
     ):
-        if table_format not in ('github', 'latex'):
+        if table_format not in ('github', 'latex', 'json'):
             raise ValueError(f"Unknown 'table_format' {table_format!r}")
         if only_body and table_format != 'latex':
             raise util.UserError("--only-body applies to --format=latex")
@@ -643,6 +730,7 @@ class Compare(Command):
         versions_1 = {}
         versions_2 = {}
         units = {}
+        identities = {}
 
         benchmarks = Benchmarks.load(conf)
 
@@ -737,23 +825,26 @@ class Compare(Command):
 
         machine_env_names = set()
 
-        for key, params, value, stats, samples, version, machine, env_name in resultset_1:
-            machine_env_name = f"{machine}/{env_name}"
-            machine_env_names.add(machine_env_name)
-            for name, value, stats, samples in unroll_result(key, params, value, stats, samples):
-                units[(name, machine_env_name)] = benchmarks.get(key, {}).get('unit')
-                results_1[(name, machine_env_name)] = value
-                ss_1[(name, machine_env_name)] = (stats, samples)
-                versions_1[(name, machine_env_name)] = version
+        def _collect(resultset, results, samples_by_name, versions):
+            for key, params, value, stats, samples, version, machine, env_name in resultset:
+                machine_env_name = f"{machine}/{env_name}"
+                machine_env_names.add(machine_env_name)
+                unrolled = unroll_result(key, params, value, stats, samples)
+                for (name, value, stats, samples), combo in zip(unrolled, _param_combos(params)):
+                    slot = (name, machine_env_name)
+                    units[slot] = benchmarks.get(key, {}).get('unit')
+                    results[slot] = value
+                    samples_by_name[slot] = (stats, samples)
+                    versions[slot] = version
+                    identities[slot] = {
+                        'name': key,
+                        'params': [_format_param_for_display(item) for item in combo],
+                        'machine': machine,
+                        'environment': env_name,
+                    }
 
-        for key, params, value, stats, samples, version, machine, env_name in resultset_2:
-            machine_env_name = f"{machine}/{env_name}"
-            machine_env_names.add(machine_env_name)
-            for name, value, stats, samples in unroll_result(key, params, value, stats, samples):
-                units[(name, machine_env_name)] = benchmarks.get(key, {}).get('unit')
-                results_2[(name, machine_env_name)] = value
-                ss_2[(name, machine_env_name)] = (stats, samples)
-                versions_2[(name, machine_env_name)] = version
+        _collect(resultset_1, results_1, ss_1, versions_1)
+        _collect(resultset_2, results_2, ss_2, versions_2)
 
         # Samples from the repeated base slot (base'), keyed like the base row.
         aa_sample_map = {}
@@ -958,35 +1049,55 @@ class Compare(Command):
                 continue
 
             unit = units[benchmark]
+            identity = identities.get(benchmark) or {
+                'name': benchmark[0],
+                'params': [],
+                'machine': benchmark[1].split('/', 1)[0],
+                'environment': benchmark[1].split('/', 1)[-1],
+            }
 
             if len(machine_env_names) > 1:
                 benchmark_name = "{} [{}]".format(*benchmark)
             else:
                 benchmark_name = benchmark[0]
-            # Build cells explicitly so a ratio CI ("1.05 [0.98, 1.12]")
-            # stays in the ratio column.
-            mark_cell = mark if mark.strip() else ' '
-            split_line = [
-                mark_cell,
-                human_value(time_1, unit, err=err_1),
-                human_value(time_2, unit, err=err_2),
-                ratio.strip(),
-                benchmark_name,
-            ]
-            latex_parts = {
-                'before': format_latex_value(time_1, unit, err_1),
-                'after': format_latex_value(time_2, unit, err_2),
-                'ratio_full': ratio.strip(),
-                'ratio_point': _split_ratio_text(ratio),
-                'mark': mark,
-                'ci': ci_value,
-                'aa': band_value,
+            ratio_text = ratio.strip()
+            numeric_ratio = None
+            if ci_value is not None:
+                numeric_ratio = _json_number(ci_value[0])
+            elif ratio_text not in ('n/a', '') and not ratio_text.startswith('~'):
+                try:
+                    numeric_ratio = float(ratio_text)
+                except ValueError:
+                    numeric_ratio = None
+            elif ratio_text.startswith('~'):
+                try:
+                    numeric_ratio = float(ratio_text[1:].strip().split()[0])
+                except ValueError:
+                    numeric_ratio = None
+            # One record feeds markdown, LaTeX, and JSON.
+            record = {
+                'name': identity['name'],
+                'params': identity['params'],
+                'machine': identity['machine'],
+                'environment': identity['environment'],
+                'before': {'median': _json_number(time_1), 'unit': unit},
+                'after': {'median': _json_number(time_2), 'unit': unit},
+                'ratio': numeric_ratio,
+                'ratio_ci': _json_triple(ci_value),
                 'rounds': disk_rounds.get(benchmark),
-                'benchmark': latex_escape(benchmark_name),
+                'verdict': _verdict_name(mark, time_1, time_2),
+                'aa_band': _json_triple(band_value),
+                'mark': mark,
+                'before_raw': time_1,
+                'after_raw': time_2,
+                'before_err': err_1,
+                'after_err': err_2,
+                'unit': unit,
+                'ratio_text': ratio_text,
+                'display_name': benchmark_name,
+                'ci': ci_value,
+                'band': band_value,
             }
-            # Keep the text cells alongside the LaTeX row so --sort still
-            # orders both formats the way the markdown table always has.
-            record = (split_line, latex_parts)
             if split:
                 bench[color].append(record)
             else:
@@ -1048,11 +1159,14 @@ class Compare(Command):
             if sort == 'default':
                 pass
             elif sort == 'ratio':
-                bench[key].sort(key=lambda v: v[0][3], reverse=True)
+                bench[key].sort(key=lambda v: v['ratio_text'], reverse=True)
             elif sort == 'name':
-                bench[key].sort(key=lambda v: v[0][2])
+                bench[key].sort(key=lambda v: _github_cells(v)[2])
             else:
                 raise ValueError("Unknown 'sort'")
+
+            if table_format == 'json':
+                continue
 
             if table_format == 'github':
                 # In --split mode always show section titles (including with
@@ -1065,14 +1179,14 @@ class Compare(Command):
 
                 print(
                     tabulate.tabulate(
-                        [record[0] for record in bench[key]],
+                        [_github_cells(record) for record in bench[key]],
                         headers=github_headers,
                         tablefmt="github",
                     )
                 )
             else:
                 table = format_latex_tabular(
-                    [_latex_row(record[1], columns) for record in bench[key]],
+                    [_latex_row(_latex_parts(record), columns) for record in bench[key]],
                     latex_headers,
                     only_body=only_body,
                     colspec=_latex_colspec(columns),
@@ -1092,6 +1206,17 @@ class Compare(Command):
                         print(r'\textbf{' + latex_escape(titles[key]) + '}')
                         print()
                     print(table)
+
+        if table_format == 'json':
+            payload = {
+                'schema_version': COMPARE_SCHEMA_VERSION,
+                'before': {'commit': hash_1, 'label': name_1.strip()},
+                'after': {'commit': hash_2, 'label': name_2.strip()},
+                'records': [
+                    _public_record(record) for key in keys for record in bench.get(key, [])
+                ],
+            }
+            print(json.dumps(payload, indent=2))
 
         worsened = worsened or aa_worsened
         improved = improved or aa_improved

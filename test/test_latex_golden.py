@@ -1,5 +1,6 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
+import json
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from asv import config, util
-from asv.commands.compare import Compare
+from asv.commands.compare import COMPARE_SCHEMA_VERSION, Compare
 from asv.commands.show import Show
 from asv.results import Results
 
@@ -207,6 +208,54 @@ def _compiles(tex, tmpdir):
     )
     assert result.returncode == 0, result.stdout
     assert (work / "table.pdf").is_file()
+
+
+def test_compare_json_schema_matches_table_verdicts(capsys, tmpdir):
+    conf = _build(tmpdir.mkdir("failed"), "failed", "compare")
+    worsened, improved = Compare.print_table(
+        conf,
+        "a" * 40,
+        "b" * 40,
+        factor=1.1,
+        split=False,
+        machine="cheetah",
+        only_changed=False,
+        table_format="json",
+    )
+    text, _err = capsys.readouterr()
+    payload = json.loads(text)
+    assert payload["schema_version"] == COMPARE_SCHEMA_VERSION
+    verdicts = {record["name"]: record["verdict"] for record in payload["records"]}
+    assert verdicts["both_failed"] == "failed"
+    assert verdicts["introduced"] == "failed"
+    assert verdicts["fixed_failure"] == "failed"
+    assert verdicts["skipped"] == "failed"
+    assert verdicts["only_after"] == "failed"
+    assert all(
+        record["ratio_ci"] is None or len(record["ratio_ci"]) == 3 for record in payload["records"]
+    )
+    assert worsened or improved
+
+    conf = _build(tmpdir.mkdir("params"), "params", "compare")
+    Compare.print_table(
+        conf,
+        "a" * 40,
+        "b" * 40,
+        factor=1.1,
+        split=False,
+        machine="cheetah",
+        only_changed=False,
+        table_format="json",
+    )
+    text, _err = capsys.readouterr()
+    payload = json.loads(text)
+    grid = {
+        (record["name"], tuple(record["params"])): record["verdict"]
+        for record in payload["records"]
+    }
+    assert grid[("group.time_grid", ("left", "1"))] == "unchanged"
+    assert grid[("group.time_grid", ("left", "2"))] == "failed"
+    assert grid[("group.time_grid", ("right", "2"))] == "slower"
 
 
 @pytest.mark.parametrize("kind", ["compare", "show"])
