@@ -15,8 +15,9 @@ except ImportError:
     hglib = None
 
 
-from asv import config, util
+from asv import config, runner, util
 from asv.repo import get_repo
+from asv.results import Results
 
 from . import tools
 
@@ -566,3 +567,105 @@ def test_branch_name_is_also_filename(tmpdir):
     retdat = subprocess.run(["asv", "publish"], cwd=dvcs.path, capture_output=True, text=True)
     assert "git rev-list --first-parent benchmarks" not in retdat.stderr
     assert retdat.returncode == 0
+
+
+def test_publish_skips_aa_environment_and_keeps_old_files(tmpdir, capsys):
+    tmpdir = str(tmpdir)
+    os.chdir(tmpdir)
+    prechange = join(
+        dirname(__file__),
+        'example_results',
+        'cheetah',
+        'fcf8c079-py2.7-Cython-numpy1.8.json',
+    )
+    with open(prechange, encoding='utf-8') as handle:
+        assert 'interleaved' not in handle.read()
+
+    dvcs = tools.generate_test_repo(tmpdir, [1, 2])
+    head, base = dvcs.get_branch_hashes()[:2]
+    results_dir = join(tmpdir, 'results')
+    machine_dir = join(results_dir, 'mach')
+    os.makedirs(machine_dir)
+    util.write_json(join(machine_dir, 'machine.json'), {'machine': 'mach'}, api_version=1)
+    util.write_json(
+        join(results_dir, 'benchmarks.json'),
+        {
+            'bench.time_it': {
+                'name': 'bench.time_it',
+                'params': [],
+                'param_names': [],
+                'version': '1',
+                'unit': 'seconds',
+            }
+        },
+        api_version=2,
+    )
+    params = {
+        'machine': 'mach',
+        'arch': 'x86_64',
+        'cpu': 'cpu',
+        'os': 'Linux',
+        'ram': '1G',
+        'python': '3.12',
+    }
+    benchmark = {'name': 'bench.time_it', 'version': '1', 'params': []}
+
+    def store(commit, value, env_name):
+        result = Results(params, {}, commit, 1, '3.12', env_name, {})
+        result.add_result(
+            benchmark,
+            runner.BenchmarkResult(
+                result=[value],
+                samples=[[value, value]],
+                number=[None],
+                errcode=0,
+                stderr='',
+                profile=None,
+            ),
+            record_samples=True,
+        )
+        result.save(results_dir)
+        return result
+
+    before = store(base, 1.0, 'py3')
+    after = store(head, 2.0, 'py3')
+    before_path = join(results_dir, before._filename)
+    assert 'interleaved' not in util.load_json(before_path)
+
+    conf = config.Config.from_json(
+        {
+            'benchmark_dir': BENCHMARK_DIR,
+            'results_dir': results_dir,
+            'html_dir': join(tmpdir, 'html'),
+            'repo': dvcs.path,
+            'project': 'asv',
+            'branches': [util.git_default_branch()],
+        }
+    )
+    tools.run_asv_with_conf(conf, 'compare', base[:8], head[:8], '--machine=mach', '--factor=1.1')
+    compared, _err = capsys.readouterr()
+    assert 'bench.time_it' in compared
+
+    tools.run_asv_with_conf(conf, 'publish', '--no-pull')
+
+    after.set_comparison(
+        base,
+        {'bench.time_it': [[2.0, 1.9, 2.1]]},
+        {'bench.time_it': [[1.0, 0.9, 1.1]]},
+    )
+    after.save(results_dir)
+    store(base, 424242.5, 'py3~aa')
+    tools.run_asv_with_conf(conf, 'publish', '--no-pull')
+
+    pieces = []
+    for root, _dirs, files in os.walk(join(tmpdir, 'html')):
+        for name in files:
+            if name.endswith('.json'):
+                with open(join(root, name), encoding='utf-8') as handle:
+                    pieces.append(handle.read())
+    published = '\n'.join(pieces)
+    assert '~aa' not in published
+    assert 'round_samples' not in published
+    assert 'interleaved' not in published
+    assert '424242' not in published
+    assert 'bench.time_it' in published

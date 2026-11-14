@@ -335,3 +335,35 @@ def test_table_formatting():
     )
     table = "\n".join(results._format_benchmark_result(result, benchmark, max_width=0))
     assert table == expected
+
+
+def test_load_result_file_from_before_interleaved_record(tmpdir):
+    """A result file written before the interleaved record still loads."""
+    src = join(
+        os.path.dirname(__file__),
+        'example_results',
+        'cheetah',
+        '22b920c6-py2.7-Cython-numpy1.8.json',
+    )
+    with open(src, encoding='utf-8') as handle:
+        original = handle.read()
+    assert 'interleaved' not in original
+    assert '"version": 1' in original
+
+    dest_dir = join(str(tmpdir), 'cheetah')
+    os.makedirs(dest_dir)
+    dest = join(dest_dir, '22b920c6-py2.7-Cython-numpy1.8.json')
+    shutil.copyfile(src, dest)
+    results.Results.update(dest)
+
+    loaded = results.Results.load(dest)
+    assert loaded.round_samples == {}
+    assert loaded.failed_rounds == {}
+    assert loaded.get_comparison('fcf8c079') is None
+    assert loaded.commit_hash.startswith('22b920c6')
+    value = loaded.get_result_value('time_units.time_unit_to', [])
+    assert value == [6.909289360046387e-05]
+
+    raw = util.load_json(dest)
+    assert 'interleaved' not in raw
+    assert raw['version'] == results.Results.api_version

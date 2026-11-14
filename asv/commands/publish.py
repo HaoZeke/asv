@@ -18,9 +18,15 @@ from asv.repo import get_repo
 from asv.results import iter_results
 
 # URL / graphdisplay query keys (asv/www); matrix packages must not reuse these
-GRAPH_UI_RESERVED_PARAMS = frozenset({
-    'benchmark', 'commits', 'y-axis-scale', 'x-axis-scale', 'show-legend',
-})
+GRAPH_UI_RESERVED_PARAMS = frozenset(
+    {
+        'benchmark',
+        'commits',
+        'y-axis-scale',
+        'x-axis-scale',
+        'show-legend',
+    }
+)
 
 
 def check_benchmark_params(name, benchmark):
@@ -87,7 +93,14 @@ class Publish(Command):
                 hashes = repo.get_hashes_from_range(range_spec)
         else:
             hashes = None
+        # The repeated base from --aa-band shares the base commit and would
+        # be averaged into the same graph point. The website keeps the
+        # real environment; the A/A record stays in the results file.
+        from .run import AA_ENV_SUFFIX
+
         for result in iter_results(conf.results_dir):
+            if result.env_name and str(result.env_name).endswith(AA_ENV_SUFFIX):
+                continue
             if hashes is None or result.commit_hash in hashes:
                 yield result
 

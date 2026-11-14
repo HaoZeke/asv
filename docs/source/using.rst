@@ -729,7 +729,10 @@ estimate is optimistic because both halves share the same rounds.
 Each round's samples are stored on the result, including a round that
 failed. The ratio CI and the A/A band are stored with the head commit.
 ``asv compare`` reads them back, so a later comparison shows the same
-interval and band. A failed round is reported and the other rounds and
+interval and band. ``asv publish`` leaves that record out of the web
+site and skips the repeated base environment, so the graphs stay the
+measurements for the real environment. A failed round is reported and
+the other rounds and
 benchmarks still run. ``--bench`` and several environments are part of
 that same rotation.
 
