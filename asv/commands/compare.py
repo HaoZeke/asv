@@ -1,11 +1,13 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
 import itertools
+import json
 import math
 
 import tabulate
 from asv_runner.console import color_print
 from asv_runner.statistics import get_err
+from asv_runner.util import _human_time_units, human_float
 
 from .. import _stats, util
 from ..benchmarks import Benchmarks
@@ -100,6 +102,216 @@ def _is_result_better(a, b, a_ss, b_ss, factor, use_stats=True):
     return a < b / factor
 
 
+# LaTeX text-mode specials. Backslash is mapped to a command that itself
+# contains braces, so replacement is per character rather than sequential.
+_LATEX_ESCAPES = {
+    '\\': r'\textbackslash{}',
+    '&': r'\&',
+    '%': r'\%',
+    '#': r'\#',
+    '$': r'\$',
+    '_': r'\_',
+    '{': r'\{',
+    '}': r'\}',
+    '~': r'\textasciitilde{}',
+    '^': r'\textasciicircum{}',
+}
+
+# Suffixes from asv_runner human_time that siunitx provides as unit macros.
+_TIME_UNIT_MACROS = {
+    'ns': r'\nano\second',
+    'μs': r'\micro\second',
+    'ms': r'\milli\second',
+    's': r'\second',
+    'm': r'\minute',
+    'h': r'\hour',
+    'd': r'\day',
+}
+
+# human_file_size scales by 1000**n with suffixes ' kMGTPEH'.
+_BYTE_UNIT_MACROS = (
+    r'\byte',
+    r'\kilo\byte',
+    r'\mega\byte',
+    r'\giga\byte',
+    r'\tera\byte',
+    r'\peta\byte',
+    r'\exa\byte',
+    r'\zetta\byte',
+)
+
+
+def latex_escape(text):
+    """
+    Escape LaTeX text-mode specials in *text*.
+
+    The characters ``\\ & % # $ _ { } ~ ^`` are escaped. Other characters,
+    including spaces produced by parameter formatting, are left unchanged.
+    """
+    return ''.join(_LATEX_ESCAPES.get(ch, ch) for ch in str(text))
+
+
+def _siunitx_qty(number, unit_macro):
+    return rf'\qty{{{number}}}{{{unit_macro}}}'
+
+
+def _format_time_latex(seconds, err):
+    """Format a duration with the same scaling as ``human_time``."""
+    units = _human_time_units
+    seconds = float(seconds)
+    scale = seconds
+
+    if scale == 0 and err is not None:
+        scale = float(err)
+
+    if scale == 0:
+        units = (('s', 1), ('m', 60))
+
+    if scale != scale:
+        return 'n/a'
+
+    for i in range(len(units) - 1):
+        if scale < units[i + 1][1]:
+            suffix, div = units[i]
+            number = human_float(seconds / div, 3, significant_zeros=True)
+            if err is not None:
+                err_text = human_float(err / div, 1, truncate_small=2)
+                number = f'{number} \\pm {err_text}'
+            macro = _TIME_UNIT_MACROS.get(suffix)
+            if macro:
+                return _siunitx_qty(number, macro)
+            return rf'\num{{{number}}}\,\text{{{latex_escape(suffix)}}}'
+
+    # human_time falls through to this for durations beyond the largest unit.
+    return r'\textasciitilde{}0'
+
+
+def _format_bytes_latex(size, err):
+    """Format a byte count with the same scaling as ``human_file_size``."""
+    size = float(size)
+    if size < 1:
+        size = 0.0
+
+    if size == 0:
+        num_scale = 0
+    else:
+        num_scale = math.floor(math.log(size) / math.log(1000))
+
+    if num_scale > 7:
+        number = human_float(size, 3)
+        if err is not None:
+            err_text = human_float(err, 1, truncate_small=2)
+            number = f'{number} \\pm {err_text}'
+        return rf'\num{{{number}}}\,\text{{?}}'
+
+    scale = int(math.pow(1000, num_scale))
+    number = human_float(size / scale, 3)
+    if err is not None:
+        err_text = human_float(err / scale, 1, truncate_small=2)
+        number = f'{number} \\pm {err_text}'
+    return _siunitx_qty(number, _BYTE_UNIT_MACROS[num_scale])
+
+
+def _format_generic_latex(value, err, unit):
+    """Format a unitless or custom-unit number for siunitx."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return latex_escape(human_value(value, unit, err=err))
+    if isinstance(value, float) and (math.isinf(value) or math.isnan(value)):
+        return latex_escape(human_value(value, unit, err=err))
+
+    if isinstance(value, int):
+        number = str(value)
+    else:
+        number = json.dumps(value)
+    if err is not None:
+        number = f'{number} \\pm {err:.2g}'
+
+    body = rf'\num{{{number}}}'
+    if unit and unit != 'unit':
+        body += rf'\,\text{{{latex_escape(unit)}}}'
+    return body
+
+
+def format_latex_value(value, unit, err=None):
+    """
+    Format one measurement the way ``human_value`` does, as LaTeX.
+
+    Times and byte counts use ``\\qty`` with siunitx unit macros. Other
+    numeric results use ``\\num``. Failed and missing values stay ``failed``
+    and ``n/a``, matching the text table.
+    """
+    if value is None:
+        return 'failed'
+    if isinstance(value, float) and math.isnan(value):
+        return 'n/a'
+    if unit == 'seconds' and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _format_time_latex(value, err)
+    if unit == 'bytes' and isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _format_bytes_latex(value, err)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return _format_generic_latex(value, err, unit)
+    return latex_escape(human_value(value, unit, err=err))
+
+
+def format_latex_ratio(mark, ratio):
+    """
+    Format the ratio cell, keeping the text table's significance marks.
+
+    ``+`` and ``-`` are the change column. ``~`` is the insignificant-ratio
+    prefix and is emitted as ``\\textasciitilde{}``. ``!``, ``*``, and ``x``
+    are kept as well.
+    """
+    ratio = ratio.strip()
+    tilde = ratio.startswith('~')
+    if tilde:
+        ratio = ratio[1:].strip()
+
+    if ratio == 'n/a':
+        body = 'n/a'
+    else:
+        body = rf'\num{{{ratio}}}'
+
+    parts = []
+    if mark.strip():
+        parts.append(latex_escape(mark.strip()))
+    if tilde:
+        parts.append(r'\textasciitilde{}')
+    if not parts:
+        return body
+    # The text table glues "~" to the number and leaves +/- in their own column.
+    if tilde and not mark.strip():
+        return parts[0] + body
+    return ' '.join(parts) + ' ' + body
+
+
+def format_latex_tabular(rows, headers, only_body=False):
+    """
+    Render *rows* as a booktabs tabular.
+
+    Each row is ``(before, after, ratio, benchmark)``. With *only_body*,
+    return only the ``\\\\``-terminated lines.
+    """
+    lines = []
+    if not only_body:
+        lines.append(r'\begin{tabular}{rrrl}')
+        lines.append(r'\toprule')
+        lines.append(' & '.join(headers) + r' \\')
+        lines.append(r'\midrule')
+    for before, after, ratio, name in rows:
+        lines.append(f'{before} & {after} & {ratio} & {name} \\\\')
+    if not only_body:
+        lines.append(r'\bottomrule')
+        lines.append(r'\end{tabular}')
+    return '\n'.join(lines)
+
+
+def _latex_revision_header(label, commit_hash, commit_name):
+    header = rf'{label} [\texttt{{{latex_escape(commit_hash[:8])}}}]'
+    if commit_name:
+        header += rf' \texttt{{{latex_escape(commit_name)}}}'
+    return header
+
+
 class Compare(Command):
     @classmethod
     def setup_arguments(cls, subparsers):
@@ -124,6 +336,25 @@ class Compare(Command):
             help="""The machine to compare the revisions for.""",
         )
 
+        parser.add_argument(
+            '--format',
+            dest='table_format',
+            choices=('github', 'latex'),
+            default='github',
+            help="""Output format for the comparison table. 'github'
+            (default) is a GitHub-flavored markdown table. 'latex' is a
+            booktabs tabular with before, after, ratio, and benchmark
+            columns.""",
+        )
+
+        parser.add_argument(
+            '--only-body',
+            action='store_true',
+            help="""With --format=latex, emit only the tabular body:
+            one row per benchmark, without the tabular environment,
+            column headings, or booktabs rules.""",
+        )
+
         common_args.add_environment(parser)
 
         parser.set_defaults(func=cls.run_from_args)
@@ -143,6 +374,8 @@ class Compare(Command):
             machine=args.machine,
             env_spec=args.env_spec,
             use_stats=args.use_stats,
+            table_format=args.table_format,
+            only_body=args.only_body,
         )
 
     @classmethod
@@ -158,6 +391,8 @@ class Compare(Command):
         machine=None,
         env_spec=None,
         use_stats=True,
+        table_format='github',
+        only_body=False,
     ):
         repo = get_repo(conf)
         try:
@@ -212,6 +447,8 @@ class Compare(Command):
             machine=machine,
             env_names=env_names,
             commit_names=commit_names,
+            table_format=table_format,
+            only_body=only_body,
         )
 
     @classmethod
@@ -230,7 +467,13 @@ class Compare(Command):
         use_stats=True,
         env_names=None,
         commit_names=None,
+        table_format='github',
+        only_body=False,
     ):
+        if table_format not in ('github', 'latex'):
+            raise ValueError(f"Unknown 'table_format' {table_format!r}")
+        if only_body and table_format != 'latex':
+            raise util.UserError("--only-body applies to --format=latex")
         results_1 = {}
         results_2 = {}
         ss_1 = {}
@@ -411,7 +654,10 @@ class Compare(Command):
 
             unit = units[benchmark]
 
-            details = f"{mark:1s} {human_value(time_1, unit, err=err_1):>15s}  {human_value(time_2, unit, err=err_2):>15s} {ratio:>8s}  "
+            details = (
+                f"{mark:1s} {human_value(time_1, unit, err=err_1):>15s}  "
+                f"{human_value(time_2, unit, err=err_2):>15s} {ratio:>8s}  "
+            )
             split_line = details.split()
             if len(machine_env_names) > 1:
                 benchmark_name = "{} [{}]".format(*benchmark)
@@ -421,10 +667,19 @@ class Compare(Command):
                 split_line += [benchmark_name]
             else:
                 split_line = [' '] + split_line + [benchmark_name]
+            latex_row = (
+                format_latex_value(time_1, unit, err_1),
+                format_latex_value(time_2, unit, err_2),
+                format_latex_ratio(mark, ratio),
+                latex_escape(benchmark_name),
+            )
+            # Keep the text cells alongside the LaTeX row so --sort still
+            # orders both formats the way the markdown table always has.
+            record = (split_line, latex_row)
             if split:
-                bench[color].append(split_line)
+                bench[color].append(record)
             else:
-                bench['all'].append(split_line)
+                bench['all'].append(record)
 
         if split:
             keys = ['green', 'default', 'red', 'lightgrey']
@@ -440,51 +695,82 @@ class Compare(Command):
 
         log.flush()
 
+        name_1 = commit_names.get(hash_1)
+        if name_1:
+            name_1 = f'<{name_1}>'
+        else:
+            name_1 = ''
+
+        name_2 = commit_names.get(hash_2)
+        if name_2:
+            name_2 = f'<{name_2}>'
+        else:
+            name_2 = ''
+
+        github_headers = [
+            'Change',
+            f'Before [{hash_1[:8]}] {name_1}',
+            f'After [{hash_2[:8]}] {name_2}',
+            'Ratio',
+            'Benchmark (Parameter)',
+        ]
+        latex_headers = [
+            _latex_revision_header('Before', hash_1, name_1),
+            _latex_revision_header('After', hash_2, name_2),
+            'Ratio',
+            'Benchmark',
+        ]
+        wrote_latex_preamble = False
+
         for key in keys:
             if len(bench[key]) == 0:
                 continue
 
-            # In --split mode always show section titles (including with
-            # --only-changed); non-split --only-changed keeps a flat table
-            # without the "All benchmarks:" banner (issue #885).
-            if split or not only_changed:
-                color_print("")
-                color_print(titles[key])
-                color_print("")
-
-            name_1 = commit_names.get(hash_1)
-            if name_1:
-                name_1 = f'<{name_1}>'
-            else:
-                name_1 = ''
-
-            name_2 = commit_names.get(hash_2)
-            if name_2:
-                name_2 = f'<{name_2}>'
-            else:
-                name_2 = ''
-
             if sort == 'default':
                 pass
             elif sort == 'ratio':
-                bench[key].sort(key=lambda v: v[3], reverse=True)
+                bench[key].sort(key=lambda v: v[0][3], reverse=True)
             elif sort == 'name':
-                bench[key].sort(key=lambda v: v[2])
+                bench[key].sort(key=lambda v: v[0][2])
             else:
                 raise ValueError("Unknown 'sort'")
 
-            print(
-                tabulate.tabulate(
-                    bench[key],
-                    headers=[
-                        'Change',
-                        f'Before [{hash_1[:8]}] {name_1}',
-                        f'After [{hash_2[:8]}] {name_2}',
-                        'Ratio',
-                        'Benchmark (Parameter)',
-                    ],
-                    tablefmt="github",
+            if table_format == 'github':
+                # In --split mode always show section titles (including with
+                # --only-changed); non-split --only-changed keeps a flat table
+                # without the "All benchmarks:" banner (issue #885).
+                if split or not only_changed:
+                    color_print("")
+                    color_print(titles[key])
+                    color_print("")
+
+                print(
+                    tabulate.tabulate(
+                        [record[0] for record in bench[key]],
+                        headers=github_headers,
+                        tablefmt="github",
+                    )
                 )
-            )
+            else:
+                table = format_latex_tabular(
+                    [record[1] for record in bench[key]],
+                    latex_headers,
+                    only_body=only_body,
+                )
+                if only_body:
+                    # Comments keep split groups distinct inside one tabular.
+                    if split:
+                        print(f'% {titles[key]}')
+                    print(table)
+                else:
+                    if not wrote_latex_preamble:
+                        print(r'% Requires \usepackage{booktabs,siunitx}')
+                        wrote_latex_preamble = True
+                    if split or not only_changed:
+                        print()
+                        print(r'\noindent')
+                        print(r'\textbf{' + latex_escape(titles[key]) + '}')
+                        print()
+                    print(table)
 
         return worsened, improved

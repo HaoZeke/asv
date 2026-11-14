@@ -661,3 +661,39 @@ each of its symbolic states can be understood as:
      - Better
 
 Additionally, statistically insignificant results have ``~`` in the ratio column as well.
+
+LaTeX tables
+~~~~~~~~~~~~
+
+``asv compare --format=latex`` writes a ``booktabs`` tabular for a paper.
+The columns are the measurement before, the measurement after, the ratio
+of after to before, and the benchmark name with its parameters.
+Add ``booktabs`` and ``siunitx`` to the document preamble.
+
+Each measurement uses the same scaling as the text table. Times are
+``\\qty`` values with SI prefixes, byte counts use powers of 1000, and
+unitless results are ``\\num`` values. Ratios are ``\\num`` values. A
+result that failed or was skipped stays ``failed`` or ``n/a``.
+
+.. code-block:: latex
+
+   \qty{69.1}{\micro\second}
+   \qty{1.00 \pm 1}{\second}
+   \qty{1}{\kilo\byte}
+   \num{3.00}
+
+The text table's marks are kept in the ratio column: ``+`` and ``-`` when
+the change exceeds ``--factor``, ``~`` (as ``\\textasciitilde{}``) when
+that change is not statistically significant, ``!`` for a new failure,
+``*`` for a fixed failure, and ``x`` when the benchmark versions differ.
+Benchmark names and parameters escape underscore, ampersand, percent,
+hash, dollar, braces, tilde, caret, and backslash.
+
+``--only-body`` prints the row lines alone, so they can be included from
+a ``tabular`` that already has its header and rules. With ``--split``,
+each group is preceded by a ``%`` comment naming that group.
+
+.. code-block:: console
+
+   $ asv compare v0.1 v0.2 --format=latex
+   $ asv compare v0.1 v0.2 --format=latex --only-body > body.tex
