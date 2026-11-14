@@ -6,7 +6,7 @@ import pytest
 from asv import _stats, config, util
 from asv.commands import make_argparser
 from asv.commands.compare import Compare
-from asv.commands.continuous import _apply_interleave_rounds
+from asv.commands.continuous import _adaptive_settings, _apply_interleave_rounds
 from asv.commands.run import AA_ENV_SUFFIX, interleaved_slot_order
 
 from . import tools
@@ -45,6 +45,23 @@ def test_interleave_rounds_parsing():
     assert split.aa_band is False
     assert split.aa_band_split is True
 
+    adaptive = parser.parse_args(
+        [
+            'continuous',
+            '--interleave-rounds',
+            '20',
+            '--min-rounds',
+            '6',
+            '--ci-tol',
+            '0.02',
+            'feature',
+        ]
+    )
+    assert adaptive.interleave_round_count == 20
+    assert adaptive.min_rounds == 6
+    assert adaptive.ci_tol == 0.02
+    assert adaptive.branch == 'feature'
+
 
 def test_apply_interleave_rounds_sets_rounds_attribute():
     flag, attribute, report_ci = _apply_interleave_rounds(4, {'repeat': 2}, False, False)
@@ -65,6 +82,49 @@ def test_apply_interleave_rounds_sets_rounds_attribute():
         _apply_interleave_rounds(0, None, False, False)
     with pytest.raises(util.UserError, match='quick'):
         _apply_interleave_rounds(3, None, True, False)
+
+
+def test_adaptive_settings_uses_bonferroni_looks():
+    alpha, tol, looks = _adaptive_settings(6, 20, True, None)
+    assert looks[0] == 6
+    assert looks[-1] == 20
+    assert len(looks) == 4
+    assert alpha == _stats.sequential_alpha(len(looks))
+    assert alpha == pytest.approx(0.05 / 4)
+    assert tol == 0.02
+    assert _stats.planned_looks(8, 8) == [8]
+    assert _adaptive_settings(None, None, False, None) is None
+    with pytest.raises(util.UserError, match='aa-band'):
+        _adaptive_settings(6, 20, False, None)
+    with pytest.raises(util.UserError, match='interleave-rounds'):
+        _adaptive_settings(6, None, True, None)
+    with pytest.raises(util.UserError, match='between'):
+        _adaptive_settings(21, 20, True, None)
+    with pytest.raises(util.UserError, match='ci-tol'):
+        _adaptive_settings(None, 20, True, 0.01)
+
+
+def test_adaptive_stop_outside_inside_and_undecided():
+    flat = [1.0] * 30
+    doubled = [2.0] * 30
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, tol=0.01, alpha=0.05)
+    assert verdict == 'outside'
+    assert _stats.ci_outside_band(ci, band)
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, tol=0.01, alpha=0.05)
+    assert verdict == 'inside'
+    assert _stats.ci_inside_band(ci, band)
+    assert _stats.ci_half_width(ci) < 0.01
+    # A wide cloud is neither outside the band nor narrow enough to stop.
+    noisy = [0.5, 1.5, 0.8, 1.4, 0.6, 1.6, 0.7, 1.3]
+    verdict, ci, _band = _stats.adaptive_aa_stop(noisy, noisy, noisy, tol=0.001, alpha=0.05)
+    assert verdict is None
+    assert ci is not None
+    # The widened alpha used for repeated looks is stricter than 95%.
+    wide = _stats.bootstrap_median_ratio_ci(noisy, [x * 1.2 for x in noisy], alpha=0.05)
+    narrow = _stats.bootstrap_median_ratio_ci(
+        noisy, [x * 1.2 for x in noisy], alpha=_stats.sequential_alpha(4)
+    )
+    assert (narrow[2] - narrow[1]) > (wide[2] - wide[1])
 
 
 def test_bootstrap_ci_is_deterministic_for_constant_samples():

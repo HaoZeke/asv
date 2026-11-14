@@ -726,6 +726,19 @@ that interval lies entirely outside the ``base'`` / ``base`` band.
 ``--aa-band-split`` instead splits one base sample list in half. That
 estimate is optimistic because both halves share the same rounds.
 
+``--min-rounds M`` with ``--interleave-rounds N`` stops a benchmark
+at a planned look once its ratio interval lies entirely outside the A/A
+band, or no longer does and its half-width is below ``--ci-tol``
+(default ``0.02``, in ratio units). Touching the band is not outside,
+so a precise no-op stops when the two intervals only overlap. At most
+four looks are spread from round ``M`` through round ``N``, always
+including both ends. The interval uses a Bonferroni alpha, ``0.05``
+divided by the number of looks. That widened interval is the one
+stored and printed. It is wider than a single 95% interval, which is
+the cost of looking more than once. Checking every round would divide
+by many more looks and make a real 3% change hard to resolve, so the
+number of looks is capped.
+
 Each round's samples are stored on the result, including a round that
 failed. The ratio CI and the A/A band are stored with the head commit.
 ``asv compare`` reads them back, so a later comparison shows the same

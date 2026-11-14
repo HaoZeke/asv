@@ -130,6 +130,25 @@ class Continuous(Command):
             half. Both halves share the same rounds, so the band misses
             round-to-round drift. Prefer --aa-band.""",
         )
+        parser.add_argument(
+            "--min-rounds",
+            type=int,
+            default=None,
+            help="""With --interleave-rounds N and an A/A band, stop a
+            benchmark after this many rounds once its ratio CI lies
+            entirely outside the band, or no longer does and its
+            half-width is below --ci-tol. Looks from this round through
+            N share a Bonferroni-widened interval, which is also the
+            interval that is stored and printed.""",
+        )
+        parser.add_argument(
+            "--ci-tol",
+            type=float,
+            default=None,
+            help="""Half-width of the ratio CI, in ratio units, required
+            before a benchmark that sits inside the A/A band stops.
+            Default 0.01 when --min-rounds is set.""",
+        )
         # Backward compatibility for '--(no-)interleave-rounds'
         parser.add_argument(
             "--interleave-processes",
@@ -186,6 +205,8 @@ class Continuous(Command):
             interleave_round_count=args.interleave_round_count,
             aa_band=args.aa_band,
             aa_band_split=args.aa_band_split,
+            min_rounds=args.min_rounds,
+            ci_tol=args.ci_tol,
             launch_method=args.launch_method,
             **kwargs,
         )
@@ -213,6 +234,8 @@ class Continuous(Command):
         interleave_round_count=None,
         aa_band=False,
         aa_band_split=False,
+        min_rounds=None,
+        ci_tol=None,
         launch_method=None,
         _machine_file=None,
     ):
@@ -223,6 +246,8 @@ class Continuous(Command):
         interleave_rounds, attribute, report_ci = _apply_interleave_rounds(
             interleave_rounds, attribute, quick, aa_band or aa_band_split
         )
+        max_rounds = attribute.get('rounds') if isinstance(attribute, dict) else None
+        adaptive = _adaptive_settings(min_rounds, max_rounds, aa_band or aa_band_split, ci_tol)
 
         repo = get_repo(conf)
         repo.pull()
@@ -252,6 +277,30 @@ class Continuous(Command):
                 (head, ''),
             ]
         run_objs = {}
+        stopped = []
+        after_round = None
+        ci_alpha = 0.05
+        if adaptive is not None:
+            ci_alpha, ci_tol, look_rounds = adaptive
+            log.info(
+                "Adaptive stopping at rounds "
+                + ", ".join(str(number) for number in look_rounds)
+                + f": Bonferroni alpha {ci_alpha:.4f} over {len(look_rounds)} "
+                + f"looks, ci-tol {ci_tol}"
+            )
+            after_round = _make_round_stopper(
+                conf,
+                run_objs,
+                parent,
+                head,
+                aa_band,
+                aa_band_split,
+                look_rounds,
+                ci_alpha,
+                ci_tol,
+                stopped,
+                commit_slots,
+            )
 
         run_status = Run.run(
             conf,
@@ -267,6 +316,7 @@ class Continuous(Command):
             interleave_rounds=interleave_rounds,
             launch_method=launch_method,
             commit_slots=commit_slots,
+            after_round=after_round,
             _returns=run_objs,
             _machine_file=_machine_file,
         )
@@ -310,7 +360,10 @@ class Continuous(Command):
                 head,
                 aa_band=aa_band,
                 aa_split=aa_band_split,
+                alpha=ci_alpha,
             )
+            if adaptive is not None:
+                _report_adaptive_rounds(conf, run_objs, head, stopped)
         else:
             stored_ci, stored_band = None, None
 
@@ -356,7 +409,137 @@ def _as_ci_list(ci):
     return [ci[0], ci[1], ci[2]]
 
 
-def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_split):
+def _adaptive_settings(min_rounds, max_rounds, aa, ci_tol):
+    """
+    Return ``(alpha, tol, look_rounds)`` or ``None`` when stopping is off.
+
+    The alpha is Bonferroni over at most four planned looks, spread
+    from *min_rounds* through *max_rounds*.
+    """
+    if min_rounds is None and ci_tol is None:
+        return None
+    if min_rounds is None:
+        raise util.UserError("--ci-tol requires --min-rounds")
+    if not aa:
+        raise util.UserError("--min-rounds requires --aa-band or --aa-band-split")
+    if max_rounds is None:
+        raise util.UserError("--min-rounds requires --interleave-rounds N")
+    if min_rounds < 1 or min_rounds > max_rounds:
+        raise util.UserError("--min-rounds must be between 1 and --interleave-rounds N")
+    tol = 0.02 if ci_tol is None else ci_tol
+    if tol <= 0:
+        raise util.UserError("--ci-tol must be positive")
+    looks = _stats.planned_looks(min_rounds, max_rounds)
+    return _stats.sequential_alpha(len(looks)), tol, looks
+
+
+def _param_samples(result, name, params, index):
+    if result is None or name not in result.get_all_result_keys():
+        return None
+    samples = result.get_result_samples(name, params)
+    if samples is None or index >= len(samples):
+        return None
+    return samples[index]
+
+
+def _make_round_stopper(
+    conf,
+    run_objs,
+    parent,
+    head,
+    aa_band,
+    aa_split,
+    look_rounds,
+    alpha,
+    tol,
+    stopped,
+    commit_slots,
+):
+    """Stop a benchmark once every parameter combination has a verdict."""
+
+    look_set = set(look_rounds)
+
+    def after_round(display_round, skipped):
+        if display_round not in look_set:
+            return
+        if 'environments' not in run_objs:
+            return
+        machine_name = run_objs['machine_params']['machine']
+        commits = [commit for commit, _suffix in (commit_slots or [(parent, ''), (head, '')])]
+        for env in run_objs['environments']:
+            paths = {
+                'base': results.get_filename(machine_name, parent, env.name),
+                'head': results.get_filename(machine_name, head, env.name),
+            }
+            if aa_band:
+                paths['aa'] = results.get_filename(machine_name, parent, env.name + AA_ENV_SUFFIX)
+            loaded = {}
+            for key, filename in paths.items():
+                path = os.path.join(conf.results_dir, filename)
+                if not os.path.isfile(path):
+                    loaded[key] = None
+                    continue
+                try:
+                    loaded[key] = results.Results.load(path, machine_name)
+                except util.UserError as err:
+                    log.warning(str(err))
+                    loaded[key] = None
+            if loaded.get('base') is None or loaded.get('head') is None:
+                continue
+            for name, benchmark in run_objs['benchmarks'].items():
+                if name in skipped[(parent, env.name)]:
+                    continue
+                params = benchmark['params']
+                count = 1
+                if name in loaded['base'].get_all_result_keys():
+                    count = len(loaded['base'].get_result_samples(name, params) or [None])
+                verdicts = []
+                for index in range(count):
+                    verdict, _ci, _band = _stats.adaptive_aa_stop(
+                        _param_samples(loaded['base'], name, params, index),
+                        _param_samples(loaded['head'], name, params, index),
+                        _param_samples(loaded.get('aa'), name, params, index),
+                        tol,
+                        alpha=alpha,
+                        split_aa=aa_split,
+                    )
+                    verdicts.append(verdict)
+                if not verdicts or any(item is None for item in verdicts):
+                    continue
+                summary = 'outside' if 'outside' in verdicts else 'inside'
+                for commit in commits:
+                    skipped[(commit, env.name)].add(name)
+                stopped.append((name, env.name, display_round, summary))
+                log.info(f"{name} [{env.name}] stopped after round {display_round} ({summary})")
+
+    return after_round
+
+
+def _report_adaptive_rounds(conf, run_objs, head, stopped):
+    machine_name = run_objs['machine_params']['machine']
+    verdicts = {
+        (name, env): (round_number, verdict) for name, env, round_number, verdict in stopped
+    }
+    for env in run_objs['environments']:
+        path = os.path.join(conf.results_dir, results.get_filename(machine_name, head, env.name))
+        if not os.path.isfile(path):
+            continue
+        try:
+            head_result = results.Results.load(path, machine_name)
+        except util.UserError as err:
+            log.warning(str(err))
+            continue
+        for name, rounds in head_result.round_samples.items():
+            used = len(rounds)
+            found = verdicts.get((name, env.name))
+            if found is None:
+                detail = "ran every round"
+            else:
+                detail = f"stopped after round {found[0]} ({found[1]})"
+            log.info(f"{name} [{env.name}]: {used} rounds, {detail}")
+
+
+def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_split, alpha=0.05):
     """
     Write the ratio CI and A/A band into the head result files.
 
@@ -418,11 +601,13 @@ def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_spl
                 paired_samples = (
                     paired[index] if paired is not None and index < len(paired) else None
                 )
-                ci = _stats.bootstrap_median_ratio_ci(before_samples, after_samples)
+                ci = _stats.bootstrap_median_ratio_ci(before_samples, after_samples, alpha=alpha)
                 if aa_band:
-                    band = _stats.bootstrap_median_ratio_ci(before_samples, paired_samples, seed=2)
+                    band = _stats.bootstrap_median_ratio_ci(
+                        before_samples, paired_samples, alpha=alpha, seed=2
+                    )
                 elif aa_split:
-                    band = _stats.split_half_aa_band(before_samples, seed=2)
+                    band = _stats.split_half_aa_band(before_samples, alpha=alpha, seed=2)
                 else:
                     band = None
                 cis.append(_as_ci_list(ci))

@@ -286,6 +286,7 @@ class Run(Command):
         launch_method=None,
         durations=0,
         commit_slots=None,
+        after_round=None,
         _returns={},  # noqa: B006
     ):
         machine_params = Machine.load(machine_name=machine, _path=_machine_file, interactive=True)
@@ -502,10 +503,22 @@ class Run(Command):
                     yield run_rounds, slot
 
         build_durations = defaultdict(lambda: 0)
+        slots_done = 0
+
+        def finish_slot(run_rounds):
+            nonlocal slots_done
+            if after_round is None or not interleave_rounds or not run_rounds:
+                return
+            slots_done += 1
+            if slots_done >= len(schedule):
+                display_round = max_rounds - run_rounds[0] + 1
+                after_round(display_round, skipped_benchmarks)
+                slots_done = 0
 
         for run_rounds, slot in iter_rounds_commits():
             commit_hash, env_suffix = slot
             if commit_hash in skipped_benchmarks and skipped_benchmarks[commit_hash] is True:
+                finish_slot(run_rounds)
                 continue
 
             active_environments = [
@@ -515,6 +528,7 @@ class Run(Command):
             ]
 
             if not active_environments:
+                finish_slot(run_rounds)
                 continue
 
             if commit_hash:
@@ -650,6 +664,8 @@ class Run(Command):
                             log.info(
                                 cls.format_durations(duration_set[(machine, env.name)], durations)
                             )
+
+            finish_slot(run_rounds)
 
         if failures:
             return 2

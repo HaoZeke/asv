@@ -336,6 +336,75 @@ def ci_outside_band(ci, band):
     return ci_high < band_low or ci_low > band_high
 
 
+def ci_inside_band(ci, band):
+    """True when the ratio interval lies entirely inside the A/A band."""
+    return ci[1] >= band[1] and ci[2] <= band[2]
+
+
+def ci_half_width(ci):
+    """Half the width of a ``(point, low, high)`` interval."""
+    return (ci[2] - ci[1]) / 2.0
+
+
+def planned_looks(min_rounds, max_rounds, max_looks=4):
+    """
+    Round numbers at which an adaptive run may stop.
+
+    At most *max_looks* checks are spread from *min_rounds* through
+    *max_rounds*, always including both ends. Capping the looks keeps
+    the Bonferroni widening smaller than a check after every round.
+    """
+    if min_rounds > max_rounds or min_rounds < 1 or max_looks < 1:
+        raise ValueError("min_rounds must be within 1..max_rounds")
+    count = min(max_looks, max_rounds - min_rounds + 1)
+    if count == 1:
+        return [min_rounds]
+    span = max_rounds - min_rounds
+    return sorted({min_rounds + round(i * span / (count - 1)) for i in range(count)})
+
+
+def sequential_alpha(n_looks, alpha=0.05):
+    """
+    Bonferroni alpha for one of *n_looks* planned checks.
+
+    Dividing *alpha* by the number of looks keeps the chance of a false
+    stop, across every look, at most *alpha*. The same alpha is used
+    for the interval that is stored and printed.
+    """
+    if n_looks < 1:
+        raise ValueError("n_looks must be positive")
+    return alpha / n_looks
+
+
+def adaptive_aa_stop(
+    before, after, aa_samples, tol, alpha=0.05, split_aa=False, n_resamples=10000
+):
+    """
+    One sequential look at a benchmark.
+
+    Returns ``(verdict, ci, band)``. *verdict* is ``'outside'`` when the
+    ratio interval lies entirely outside the A/A band, ``'inside'`` when
+    it does not and its half-width is below *tol*, and ``None`` when the
+    benchmark should keep running. Touching the band is not outside, so
+    a precise no-op stops even when the two intervals only overlap.
+    *ci* and *band* are ``(point, low, high)`` or ``None``.
+    """
+    ci = bootstrap_median_ratio_ci(before, after, n_resamples=n_resamples, alpha=alpha)
+    if split_aa:
+        band = split_half_aa_band(before, n_resamples=n_resamples, alpha=alpha, seed=2)
+    else:
+        band = bootstrap_median_ratio_ci(
+            before, aa_samples, n_resamples=n_resamples, alpha=alpha, seed=2
+        )
+    if ci is None or band is None:
+        return None, ci, band
+    if ci_outside_band(ci, band):
+        return 'outside', ci, band
+    if ci_half_width(ci) < tol:
+        return 'inside', ci, band
+    return None, ci, band
+
+
 def interleaved_ratio_decision(
     before,
     after,

@@ -30,6 +30,10 @@ that band. ``--aa-band-split`` is the older half-split of one base
 sample list. It misses that drift, and it is used only when asked for.
 The per-round samples, the ratio CI, and the A/A band are written into
 the result file and read back by ``asv compare``.
+``--min-rounds`` can stop a benchmark before ``--interleave-rounds``
+is exhausted. The stopping interval is widened by a Bonferroni factor
+over the planned looks, and that same interval is what ``asv compare``
+prints.
 
 If you are planning to capture historical benchmark data for most
 commits, very accurate timings are not necessary.  The detection of
