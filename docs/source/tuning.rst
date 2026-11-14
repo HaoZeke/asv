@@ -33,9 +33,11 @@ sample list. It misses that drift, and it is used only when asked for.
 The per-round samples, the ratio CI, and the A/A band are written into
 the result file and read back by ``asv compare``.
 ``--min-rounds`` can stop a benchmark before ``--interleave-rounds``
-is exhausted. The looks follow an O'Brien-Fleming spending of the 5%
-tail, and ``asv compare`` prints the interval from the look that
-stopped the benchmark.
+is exhausted, and only when the interval clears the A/A band. A
+no-change call waits for the last look unless ``--min-effect`` says
+the interval is entirely inside ``1 ± T``. The looks follow an
+O'Brien-Fleming spending of the 5% tail, and ``asv compare`` prints
+the interval from the look that stopped the benchmark.
 
 If you are planning to capture historical benchmark data for most
 commits, very accurate timings are not necessary.  The detection of

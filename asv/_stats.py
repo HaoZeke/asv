@@ -448,18 +448,32 @@ def alpha_for_recorded_rounds(n_rounds, looks, alpha=0.05):
     return obf_alpha(look_index, len(looks), alpha)
 
 
+def ci_within_threshold(ci, threshold):
+    """True when the ratio interval lies entirely inside ``1 ± threshold``."""
+    return ci[1] >= 1.0 - threshold and ci[2] <= 1.0 + threshold
+
+
 def adaptive_aa_stop(
-    before, after, aa_samples, tol, alpha=0.05, split_aa=False, n_resamples=10000
+    before,
+    after,
+    aa_samples,
+    alpha=0.05,
+    split_aa=False,
+    n_resamples=10000,
+    min_effect=None,
+    final=False,
 ):
     """
     One sequential look at a benchmark.
 
     Returns ``(verdict, ci, band)``. *verdict* is ``'outside'`` when the
-    ratio interval lies entirely outside the A/A band, ``'inside'`` when
-    it does not and its half-width is below *tol*, and ``None`` when the
-    benchmark should keep running. Touching the band is not outside, so
-    a precise no-op stops even when the two intervals only overlap.
-    *ci* and *band* are ``(point, low, high)`` or ``None``.
+    ratio interval lies entirely outside the A/A band. An interim look
+    returns that and nothing else, unless *min_effect* is set and the
+    interval lies entirely inside ``1 ± min_effect``, in which case the
+    verdict is ``'inside'``. The final look returns ``'inside'`` when
+    the interval does not clear the band. ``None`` means keep running.
+    Touching the band is not outside. *ci* and *band* are
+    ``(point, low, high)`` or ``None``.
     """
     ci = bootstrap_median_ratio_ci(before, after, n_resamples=n_resamples, alpha=alpha)
     if split_aa:
@@ -472,7 +486,9 @@ def adaptive_aa_stop(
         return None, ci, band
     if ci_outside_band(ci, band):
         return 'outside', ci, band
-    if ci_half_width(ci) < tol:
+    if final:
+        return 'inside', ci, band
+    if min_effect is not None and ci_within_threshold(ci, min_effect):
         return 'inside', ci, band
     return None, ci, band
 

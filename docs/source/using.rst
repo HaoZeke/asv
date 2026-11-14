@@ -730,16 +730,17 @@ that interval lies entirely outside the ``base'`` / ``base`` band.
 estimate is optimistic because both halves share the same rounds.
 
 ``--min-rounds M`` with ``--interleave-rounds N`` stops a benchmark
-at a planned look once its ratio interval lies entirely outside the A/A
-band, or no longer does and its half-width is below ``--ci-tol``
-(default ``0.02``, in ratio units). Touching the band is not outside,
-so a precise no-op stops when the two intervals only overlap. At most
-four looks are spread from round ``M`` through round ``N``, always
-including both ends. The looks spend the 5% tail in the O'Brien-Fleming
-way: the critical value at look ``k`` of ``K`` is the usual normal
-quantile times ``sqrt(K / k)``. The last look is an ordinary 95%
-interval, so a small effect is not penalized for the earlier checks.
-An early stop stores and prints the wider interval from that look.
+at a planned look only when its ratio interval lies entirely outside
+the A/A band. Touching the band is not outside. A no-change verdict
+waits for the last look. ``--min-effect T`` is optional: an interim
+look may then also stop when the interval lies entirely inside
+``1 ± T``. At most four looks are spread from round ``M`` through
+round ``N``, always including both ends. The looks spend the 5% tail
+in the O'Brien-Fleming way: the critical value at look ``k`` of ``K``
+is the usual normal quantile times ``sqrt(K / k)``. The last look is
+an ordinary 95% interval, so a small effect is not penalized for the
+earlier checks. An early stop stores and prints the wider interval
+from that look.
 
 Each round's samples are stored on the result, including a round that
 failed. The ratio CI and the A/A band are stored with the head commit.

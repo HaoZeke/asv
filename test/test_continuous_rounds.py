@@ -64,14 +64,14 @@ def test_interleave_rounds_parsing():
             '20',
             '--min-rounds',
             '6',
-            '--ci-tol',
-            '0.02',
+            '--min-effect',
+            '0.03',
             'feature',
         ]
     )
     assert adaptive.interleave_round_count == 20
     assert adaptive.min_rounds == 6
-    assert adaptive.ci_tol == 0.02
+    assert adaptive.min_effect == 0.03
     assert adaptive.branch == 'feature'
 
 
@@ -97,11 +97,12 @@ def test_apply_interleave_rounds_sets_rounds_attribute():
 
 
 def test_adaptive_settings_uses_obf_looks():
-    tol, looks = _adaptive_settings(6, 20, True, None)
+    min_effect, looks = _adaptive_settings(6, 20, True, None)
     assert looks[0] == 6
     assert looks[-1] == 20
     assert len(looks) == 4
-    assert tol == 0.02
+    assert min_effect is None
+    assert _adaptive_settings(6, 20, True, 0.03)[0] == 0.03
     assert _stats.obf_alpha(len(looks), len(looks)) == pytest.approx(0.05, abs=1e-4)
     assert _stats.obf_alpha(1, len(looks)) < 0.001
     assert _stats.planned_looks(8, 8) == [8]
@@ -112,23 +113,27 @@ def test_adaptive_settings_uses_obf_looks():
         _adaptive_settings(6, None, True, None)
     with pytest.raises(util.UserError, match='between'):
         _adaptive_settings(21, 20, True, None)
-    with pytest.raises(util.UserError, match='ci-tol'):
-        _adaptive_settings(None, 20, True, 0.01)
+    with pytest.raises(util.UserError, match='min-effect'):
+        _adaptive_settings(None, 20, True, 0.03)
+    with pytest.raises(util.UserError, match='between 0 and 1'):
+        _adaptive_settings(6, 20, True, 0)
 
 
 def test_adaptive_stop_outside_inside_and_undecided():
     flat = [1.0] * 30
     doubled = [2.0] * 30
-    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, tol=0.01, alpha=0.05)
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, alpha=0.05)
     assert verdict == 'outside'
     assert _stats.ci_outside_band(ci, band)
-    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, tol=0.01, alpha=0.05)
-    assert verdict == 'inside'
+    # A precise no-op is inside the band, and an interim look keeps going.
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, alpha=0.05, final=False)
+    assert verdict is None
     assert _stats.ci_inside_band(ci, band)
-    assert _stats.ci_half_width(ci) < 0.01
-    # A wide cloud is neither outside the band nor narrow enough to stop.
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, alpha=0.05, final=True)
+    assert verdict == 'inside'
+    # A wide cloud is not outside the band, so an interim look does not stop.
     noisy = [0.5, 1.5, 0.8, 1.4, 0.6, 1.6, 0.7, 1.3]
-    verdict, ci, _band = _stats.adaptive_aa_stop(noisy, noisy, noisy, tol=0.001, alpha=0.05)
+    verdict, ci, _band = _stats.adaptive_aa_stop(noisy, noisy, noisy, alpha=0.05)
     assert verdict is None
     assert ci is not None
     # The widened alpha used for repeated looks is stricter than 95%.
@@ -147,13 +152,14 @@ def test_stopping_rule_noop_early_large_effect_first_look_widened_interval(capsy
     assert _stats.alpha_for_recorded_rounds(looks[-1], looks) == pytest.approx(0.05, abs=1e-4)
     flat = [1.0] * 40
     doubled = [2.0] * 40
-    # Six rounds of a precise no-op are already decisive at the first look.
-    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, tol=0.02, alpha=alpha)
-    assert verdict == 'inside'
-    assert _stats.ci_half_width(ci) < 0.02
+    # A precise no-op overlaps the band, so the first look does not stop.
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, alpha=alpha, final=False)
+    assert verdict is None
     assert not _stats.ci_outside_band(ci, band)
+    verdict, _ci, _band = _stats.adaptive_aa_stop(flat, flat, flat, alpha=alpha, final=True)
+    assert verdict == 'inside'
     # A large effect clears the band at that same first-look alpha.
-    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, tol=0.02, alpha=alpha)
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, alpha=alpha, final=False)
     assert verdict == 'outside'
     assert ci[0] == 2.0
 
@@ -395,6 +401,36 @@ def test_print_table_aa_band_uses_samples(capsys, tmpdir):
     assert '1.00 [1.00, 1.00]' in text
     data_row = next(line for line in text.splitlines() if 'bench.time_it' in line)
     assert data_row.split('|')[1].strip() == ''
+
+
+def test_interim_inside_band_does_not_stop():
+    """An interval inside the A/A band at an interim look keeps running."""
+    before = [1.0, 1.4, 0.7, 1.2, 0.8, 1.5, 0.9, 1.3] * 6
+    after = [value * 1.02 for value in before]
+    looks = _stats.planned_looks(6, 20)
+    alpha = _stats.obf_alpha(1, len(looks))
+    verdict, ci, band = _stats.adaptive_aa_stop(
+        before, after, before, alpha=alpha, final=False
+    )
+    assert ci is not None and band is not None
+    assert not _stats.ci_outside_band(ci, band)
+    assert verdict is None
+    # The same samples are a no-change only when this is the last look.
+    final_verdict, _ci, _band = _stats.adaptive_aa_stop(
+        before, after, before, alpha=_stats.obf_alpha(len(looks), len(looks)), final=True
+    )
+    assert final_verdict == 'inside'
+    # Opt-in: stop early only when the whole interval is inside 1 ± threshold.
+    contained, contained_ci, _band = _stats.adaptive_aa_stop(
+        [1.0] * 40, [1.0] * 40, [1.0] * 40, alpha=0.05, min_effect=0.03, final=False
+    )
+    assert contained == 'inside'
+    assert _stats.ci_within_threshold(contained_ci, 0.03)
+    spilled, spilled_ci, _band = _stats.adaptive_aa_stop(
+        before, after, before, alpha=alpha, min_effect=0.01, final=False
+    )
+    assert spilled is None
+    assert not _stats.ci_within_threshold(spilled_ci, 0.01)
 
 
 def test_interleaved_rounds_do_not_rebuild_when_install_is_ready(tmpdir):

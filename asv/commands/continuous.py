@@ -136,19 +136,19 @@ class Continuous(Command):
             default=None,
             help="""With --interleave-rounds N and an A/A band, stop a
             benchmark after this many rounds once its ratio CI lies
-            entirely outside the band, or no longer does and its
-            half-width is below --ci-tol. At most four looks use an
-            O'Brien-Fleming spending of the 5%% tail. The interval from
-            the look that stopped the benchmark is the one stored and
-            printed.""",
+            entirely outside the band. A no-change verdict waits for
+            the last look, unless --min-effect is set. At most four
+            looks use an O'Brien-Fleming spending of the 5%% tail. The
+            interval from the look that stopped the benchmark is the
+            one stored and printed.""",
         )
         parser.add_argument(
-            "--ci-tol",
+            "--min-effect",
             type=float,
             default=None,
-            help="""Half-width of the ratio CI, in ratio units, required
-            before a benchmark that sits inside the A/A band stops.
-            Default 0.01 when --min-rounds is set.""",
+            help="""Opt-in with --min-rounds. Stop early for no change
+            when the ratio interval lies entirely inside 1 ± THRESHOLD.
+            Without this option an interim look stops only for a change.""",
         )
         # Backward compatibility for '--(no-)interleave-rounds'
         parser.add_argument(
@@ -207,7 +207,7 @@ class Continuous(Command):
             aa_band=args.aa_band,
             aa_band_split=args.aa_band_split,
             min_rounds=args.min_rounds,
-            ci_tol=args.ci_tol,
+            min_effect=args.min_effect,
             launch_method=args.launch_method,
             **kwargs,
         )
@@ -236,7 +236,7 @@ class Continuous(Command):
         aa_band=False,
         aa_band_split=False,
         min_rounds=None,
-        ci_tol=None,
+        min_effect=None,
         launch_method=None,
         _machine_file=None,
     ):
@@ -248,7 +248,7 @@ class Continuous(Command):
             interleave_rounds, attribute, quick, aa_band or aa_band_split
         )
         max_rounds = attribute.get('rounds') if isinstance(attribute, dict) else None
-        adaptive = _adaptive_settings(min_rounds, max_rounds, aa_band or aa_band_split, ci_tol)
+        adaptive = _adaptive_settings(min_rounds, max_rounds, aa_band or aa_band_split, min_effect)
 
         repo = get_repo(conf)
         repo.pull()
@@ -282,12 +282,16 @@ class Continuous(Command):
         after_round = None
         ci_alpha = 0.05
         if adaptive is not None:
-            ci_tol, look_rounds = adaptive
+            min_effect, look_rounds = adaptive
+            if min_effect is None:
+                effect_note = "interim looks stop only for a change"
+            else:
+                effect_note = f"early no-change inside 1 ± {min_effect}"
             log.info(
                 "Adaptive stopping at rounds "
                 + ", ".join(str(number) for number in look_rounds)
                 + ": O'Brien-Fleming over "
-                + f"{len(look_rounds)} looks, ci-tol {ci_tol}"
+                + f"{len(look_rounds)} looks, {effect_note}"
             )
             after_round = _make_round_stopper(
                 conf,
@@ -297,7 +301,7 @@ class Continuous(Command):
                 aa_band,
                 aa_band_split,
                 look_rounds,
-                ci_tol,
+                min_effect,
                 stopped,
                 commit_slots,
             )
@@ -410,29 +414,29 @@ def _as_ci_list(ci):
     return [ci[0], ci[1], ci[2]]
 
 
-def _adaptive_settings(min_rounds, max_rounds, aa, ci_tol):
+def _adaptive_settings(min_rounds, max_rounds, aa, min_effect):
     """
-    Return ``(tol, look_rounds)`` or ``None`` when stopping is off.
+    Return ``(min_effect, look_rounds)`` or ``None`` when stopping is off.
 
     At most four looks are spread from *min_rounds* through
     *max_rounds*. Each look spends an O'Brien-Fleming slice of the
-    5% tail. The last look uses the full 5%.
+    5% tail. The last look uses the full 5%. *min_effect* is an
+    opt-in no-change threshold, or ``None``.
     """
-    if min_rounds is None and ci_tol is None:
+    if min_rounds is None and min_effect is None:
         return None
     if min_rounds is None:
-        raise util.UserError("--ci-tol requires --min-rounds")
+        raise util.UserError("--min-effect requires --min-rounds")
     if not aa:
         raise util.UserError("--min-rounds requires --aa-band or --aa-band-split")
     if max_rounds is None:
         raise util.UserError("--min-rounds requires --interleave-rounds N")
     if min_rounds < 1 or min_rounds > max_rounds:
         raise util.UserError("--min-rounds must be between 1 and --interleave-rounds N")
-    tol = 0.02 if ci_tol is None else ci_tol
-    if tol <= 0:
-        raise util.UserError("--ci-tol must be positive")
+    if min_effect is not None and not 0 < min_effect < 1:
+        raise util.UserError("--min-effect must be between 0 and 1")
     looks = _stats.planned_looks(min_rounds, max_rounds)
-    return tol, looks
+    return min_effect, looks
 
 
 def _param_samples(result, name, params, index):
@@ -452,18 +456,20 @@ def _make_round_stopper(
     aa_band,
     aa_split,
     look_rounds,
-    tol,
+    min_effect,
     stopped,
     commit_slots,
 ):
     """Stop a benchmark once every parameter combination has a verdict."""
 
     look_set = set(look_rounds)
+    final_round = look_rounds[-1]
 
     def after_round(display_round, skipped):
         if display_round not in look_set:
             return
         alpha = _stats.obf_alpha(look_rounds.index(display_round) + 1, len(look_rounds))
+        final = display_round == final_round
         if 'environments' not in run_objs:
             return
         machine_name = run_objs['machine_params']['machine']
@@ -501,9 +507,10 @@ def _make_round_stopper(
                         _param_samples(loaded['base'], name, params, index),
                         _param_samples(loaded['head'], name, params, index),
                         _param_samples(loaded.get('aa'), name, params, index),
-                        tol,
                         alpha=alpha,
                         split_aa=aa_split,
+                        min_effect=min_effect,
+                        final=final,
                     )
                     verdicts.append(verdict)
                 if not verdicts or any(item is None for item in verdicts):
