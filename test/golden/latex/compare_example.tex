@@ -1,0 +1,35 @@
+% Requires \usepackage{booktabs,siunitx}
+
+\noindent
+\textbf{All benchmarks:}
+
+\begin{tabular}{llrrrc}
+\toprule
+Benchmark & Params & Before [\texttt{22b920c6}] & After [\texttt{fcf8c079}] & Ratio & Mark \\
+\midrule
+params\_examples.ParamSuite.track\_value &  & n/a & failed & n/a & ! \\
+time\_AAA\_failure &  & failed & failed & n/a &  \\
+time\_AAA\_skip &  & n/a & n/a & n/a &  \\
+time\_ci\_big &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & \textasciitilde{} \\
+time\_ci\_small &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & + \\
+time\_coordinates.time\_latitude &  & \qty{454}{\micro\second} & failed & n/a & ! \\
+time\_other.time\_parameterized & 1 & \qty{1.00}{\second} & \qty{1.00}{\second} & \num{1.00} &  \\
+time\_other.time\_parameterized & 2 & \qty{2.00}{\second} & \qty{4.00}{\second} & \num{2.00} &  \\
+time\_other.time\_parameterized & 3 & \qty{3.00}{\second} & failed & n/a & ! \\
+time\_quantity.time\_quantity\_array\_conversion &  & \qty{1.75}{\milli\second} & \qty{153}{\milli\second} & \num{87.28} & + \\
+time\_quantity.time\_quantity\_init\_array &  & \qty{934}{\micro\second} & \qty{108}{\milli\second} & \num{115.90} & + \\
+time\_quantity.time\_quantity\_init\_scalar &  & \qty{83.6}{\micro\second} & \qty{55.4}{\micro\second} & \num{0.66} &  \\
+time\_quantity.time\_quantity\_scalar\_conversion &  & \qty{282}{\micro\second} & \qty{147}{\micro\second} & \num{0.52} &  \\
+time\_quantity.time\_quantity\_ufunc\_sin &  & \qty{1.31}{\milli\second} & \qty{7.75}{\milli\second} & \num{5.91} & + \\
+time\_secondary.track\_value &  & \num{42} & \num{42} & \num{1.00} &  \\
+time\_units.mem\_unit &  & \qty{5.73}{\minute} & \qty{5.73}{\minute} & \num{1.00} &  \\
+time\_units.time\_simple\_unit\_parse &  & \qty{125}{\micro\second} & \qty{3.81}{\milli\second} & \num{30.42} & + \\
+time\_units.time\_unit\_compose &  & \qty{1.64}{\milli\second} & \qty{1.53}{\milli\second} & \num{0.93} &  \\
+time\_units.time\_unit\_parse &  & \qty{372}{\micro\second} & \qty{11.5}{\milli\second} & \num{30.81} & + \\
+time\_units.time\_unit\_to &  & \qty{69.1}{\micro\second} & \qty{18.3}{\micro\second} & \num{0.27} & - \\
+time\_units.time\_very\_simple\_unit\_parse &  & \qty{11.9}{\micro\second} & \qty{13.1}{\micro\second} & \num{1.10} &  \\
+time\_with\_version\_match &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & + \\
+time\_with\_version\_mismatch\_bench &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & + \\
+time\_with\_version\_mismatch\_other &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & x \\
+\bottomrule
+\end{tabular}

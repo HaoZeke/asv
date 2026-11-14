@@ -257,6 +257,57 @@ def test_compare_json_schema_matches_table_verdicts(capsys, tmpdir):
     assert grid[("group.time_grid", ("left", "2"))] == "failed"
     assert grid[("group.time_grid", ("right", "2"))] == "slower"
 
+    Compare.print_table(
+        conf,
+        "a" * 40,
+        "b" * 40,
+        factor=1.1,
+        split=False,
+        machine="cheetah",
+        only_changed=False,
+        table_format="latex",
+    )
+    tex, _err = capsys.readouterr()
+    # The LaTeX row splits the same name and parameter list the JSON record uses.
+    assert r"group.time\_grid & left, 1 &" in tex
+    assert r"group.time\_grid & right, 2 &" in tex
+    assert r"\num{2.00} & + \\" in tex
+    _compiles(tex, tmpdir.mkdir("params-tex"))
+
+
+def test_compare_latex_scales_memory_and_time(capsys, tmpdir):
+    conf = _build(tmpdir, "units", "compare")
+    Compare.print_table(
+        conf,
+        "a" * 40,
+        "b" * 40,
+        factor=1.1,
+        split=False,
+        machine="cheetah",
+        only_changed=False,
+        table_format="json",
+    )
+    raw, _err = capsys.readouterr()
+    payload = json.loads(raw)
+    units = {record["name"]: record["before"]["unit"] for record in payload["records"]}
+    assert units["mem_kb"] == "bytes"
+    assert units["time_us"] == "seconds"
+    Compare.print_table(
+        conf,
+        "a" * 40,
+        "b" * 40,
+        factor=1.1,
+        split=False,
+        machine="cheetah",
+        only_changed=False,
+        table_format="latex",
+    )
+    tex, _err = capsys.readouterr()
+    assert r"mem\_kb &  & \qty{2}{\kilo\byte}" in tex
+    assert r"mem\_bytes &  & \qty{1}{\byte}" in tex
+    assert r"time\_us &  & \qty{1.10}{\micro\second}" in tex
+    _compiles(tex, tmpdir)
+
 
 @pytest.mark.parametrize("kind", ["compare", "show"])
 @pytest.mark.parametrize("case", CASES)

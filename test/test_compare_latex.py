@@ -1,6 +1,7 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 import math
 import os
+from pathlib import Path
 
 import pytest
 
@@ -17,64 +18,7 @@ from asv.results import Results
 
 from . import tools
 
-REFERENCE_LATEX = r"""
-% Requires \usepackage{booktabs,siunitx}
-
-\noindent
-\textbf{All benchmarks:}
-
-\begin{tabular}{rrrl}
-\toprule
-Before [\texttt{22b920c6}] & After [\texttt{fcf8c079}] & Ratio & Benchmark \\
-\midrule
-n/a & failed & ! n/a & params\_examples.ParamSuite.track\_value \\
-failed & failed & n/a & time\_AAA\_failure \\
-n/a & n/a & n/a & time\_AAA\_skip \\
-\qty{1.00 \pm 1}{\second} & \qty{3.00 \pm 1}{\second} & \textasciitilde{}\num{3.00} & time\_ci\_big \\
-\qty{1.00 \pm 0}{\second} & \qty{3.00 \pm 0}{\second} & + \num{3.00} & time\_ci\_small \\
-\qty{454}{\micro\second} & failed & ! n/a & time\_coordinates.time\_latitude \\
-\qty{1.00}{\second} & \qty{1.00}{\second} & \num{1.00} & time\_other.time\_parameterized(1) \\
-\qty{2.00}{\second} & \qty{4.00}{\second} & \num{2.00} & time\_other.time\_parameterized(2) \\
-\qty{3.00}{\second} & failed & ! n/a & time\_other.time\_parameterized(3) \\
-\qty{1.75}{\milli\second} & \qty{153}{\milli\second} & + \num{87.28} & time\_quantity.time\_quantity\_array\_conversion \\
-\qty{934}{\micro\second} & \qty{108}{\milli\second} & + \num{115.90} & time\_quantity.time\_quantity\_init\_array \\
-\qty{83.6}{\micro\second} & \qty{55.4}{\micro\second} & \num{0.66} & time\_quantity.time\_quantity\_init\_scalar \\
-\qty{282}{\micro\second} & \qty{147}{\micro\second} & \num{0.52} & time\_quantity.time\_quantity\_scalar\_conversion \\
-\qty{1.31}{\milli\second} & \qty{7.75}{\milli\second} & + \num{5.91} & time\_quantity.time\_quantity\_ufunc\_sin \\
-\num{42} & \num{42} & \num{1.00} & time\_secondary.track\_value \\
-\qty{5.73}{\minute} & \qty{5.73}{\minute} & \num{1.00} & time\_units.mem\_unit \\
-\qty{125}{\micro\second} & \qty{3.81}{\milli\second} & + \num{30.42} & time\_units.time\_simple\_unit\_parse \\
-\qty{1.64}{\milli\second} & \qty{1.53}{\milli\second} & \num{0.93} & time\_units.time\_unit\_compose \\
-\qty{372}{\micro\second} & \qty{11.5}{\milli\second} & + \num{30.81} & time\_units.time\_unit\_parse \\
-\qty{69.1}{\micro\second} & \qty{18.3}{\micro\second} & - \num{0.27} & time\_units.time\_unit\_to \\
-\qty{11.9}{\micro\second} & \qty{13.1}{\micro\second} & \num{1.10} & time\_units.time\_very\_simple\_unit\_parse \\
-\qty{1.00}{\second} & \qty{3.00}{\second} & + \num{3.00} & time\_with\_version\_match \\
-\qty{1.00}{\second} & \qty{3.00}{\second} & + \num{3.00} & time\_with\_version\_mismatch\_bench \\
-\qty{1.00}{\second} & \qty{3.00}{\second} & x \num{3.00} & time\_with\_version\_mismatch\_other \\
-\bottomrule
-\end{tabular}
-"""
-
-REFERENCE_LATEX_ESCAPE = r"""
-% Requires \usepackage{booktabs,siunitx}
-
-\noindent
-\textbf{All benchmarks:}
-
-\begin{tabular}{rrrl}
-\toprule
-Before [\texttt{latexaaa}] & After [\texttt{latexbbb}] & Ratio & Benchmark \\
-\midrule
-failed & failed & n/a & both\_failed \\
-\qty{1.00}{\second} & \qty{3.00}{\second} & + \num{3.00} & cost\_\&\%\#\$\{\}\textasciitilde{}\textasciicircum{}\textbackslash{} \\
-\qty{1.00}{\second} & \qty{4.00}{\second} & + \num{4.00} & group.time\_param(\_\&\%\#\$\{\}\textasciitilde{}\textasciicircum{}\textbackslash{} line) \\
-\qty{1.00}{\second} & failed & ! n/a & group.time\_param(plain) \\
-n/a & n/a & n/a & group.time\_param(skip) \\
-\qty{1.00}{\second} & failed & ! n/a & introduced \\
-n/a & \qty{2}{\kilo\byte} & n/a & only\_after \\
-\bottomrule
-\end{tabular}
-"""
+GOLDEN = Path(__file__).resolve().parent / "golden" / "latex"
 
 
 def _compare_conf(tmpdir, example_results):
@@ -196,7 +140,7 @@ def test_compare_latex_golden(capsys, tmpdir, example_results):
         '--format=latex',
     )
     text, err = capsys.readouterr()
-    assert text.strip() == REFERENCE_LATEX.strip()
+    assert text.strip() + "\n" == (GOLDEN / "compare_example.tex").read_text()
 
     # Commit names land in the column headings, escaped for LaTeX.
     Compare.print_table(
@@ -236,15 +180,17 @@ def test_compare_latex_only_body_and_split(capsys, tmpdir, example_results):
     assert r'\end{tabular}' not in text
     assert 'Before' not in text
     assert (
-        r'\qty{1.00}{\second} & \qty{1.00}{\second} & \num{1.00} '
-        r'& time\_other.time\_parameterized(1) \\'
+        r'time\_other.time\_parameterized & 1 & \qty{1.00}{\second} & '
+        r'\qty{1.00}{\second} & \num{1.00} &  \\'
     ) in text
-    assert r'failed & failed & n/a & time\_AAA\_failure \\' in text
-    assert r'n/a & n/a & n/a & time\_AAA\_skip \\' in text
-    assert r'n/a & failed & ! n/a & params\_examples.ParamSuite.track\_value \\' in text
-    assert r'\textasciitilde{}\num{3.00}' in text
-    assert r'+ \num{3.00}' in text
-    assert r'- \num{0.27}' in text
+    assert r'time\_AAA\_failure &  & failed & failed & n/a &  \\' in text
+    assert r'time\_AAA\_skip &  & n/a & n/a & n/a &  \\' in text
+    assert (
+        r'params\_examples.ParamSuite.track\_value &  & n/a & failed & n/a & ! \\'
+    ) in text
+    assert r'\num{3.00} & \textasciitilde{} \\' in text
+    assert r'\num{3.00} & + \\' in text
+    assert r'\num{0.27} & - \\' in text
     assert text.strip().endswith(r'\\')
 
     tools.run_asv_with_conf(
@@ -265,9 +211,11 @@ def test_compare_latex_only_body_and_split(capsys, tmpdir, example_results):
     assert r'\textbf{Benchmarks that have got worse:}' in text
     assert r'\textbf{Benchmarks that are not comparable:}' in text
     improved, rest = text.split(r'\textbf{Benchmarks that have stayed the same:}', 1)
-    assert r'- \num{0.27}' in improved
-    assert r'+ \num{87.28}' not in improved
-    assert r'x \num{3.00}' in text
+    assert r'time\_units.time\_unit\_to' in improved
+    assert r'\num{0.27} & - \\' in improved
+    assert r'time\_quantity.time\_quantity\_array\_conversion' not in improved
+    assert r'time\_with\_version\_mismatch\_other' in text
+    assert r'\num{3.00} & x \\' in text
 
     tools.run_asv_with_conf(
         conf,
@@ -428,13 +376,13 @@ def test_compare_latex_escaping_params_failed_missing(capsys, tmpdir):
         '--format=latex',
     )
     text, err = capsys.readouterr()
-    assert text.strip() == REFERENCE_LATEX_ESCAPE.strip()
-    # The newline inside the parameter is collapsed onto that benchmark's row.
-    param_rows = [line for line in text.splitlines() if 'line)' in line]
+    assert text.strip() + "\n" == (GOLDEN / "compare_escape_repo.tex").read_text()
+    # The newline inside the parameter is collapsed into the params cell.
+    param_rows = [line for line in text.splitlines() if 'textbackslash{} line &' in line]
     assert param_rows == [
-        r'\qty{1.00}{\second} & \qty{4.00}{\second} & + \num{4.00} '
-        r'& group.time\_param(\_\&\%\#\$\{\}\textasciitilde{}'
-        r'\textasciicircum{}\textbackslash{} line) \\'
+        r'group.time\_param & \_\&\%\#\$\{\}\textasciitilde{}'
+        r'\textasciicircum{}\textbackslash{} line & \qty{1.00}{\second} & '
+        r'\qty{4.00}{\second} & \num{4.00} & + \\'
     ]
 
 

@@ -373,27 +373,34 @@ def format_latex_interval(ci, mark=' '):
 
 
 _LATEX_COLUMN_CHOICES = (
+    'benchmark',
+    'params',
     'before',
     'after',
     'ratio',
+    'mark',
     'ci',
     'interval',
     'aa',
     'rounds',
     'verdict',
-    'benchmark',
 )
-_LATEX_COLUMN_DEFAULT = ('before', 'after', 'ratio', 'benchmark')
+# Benchmark and parameters are separate. The mark is the significance
+# decision (+, -, ~, !, *, x) that the JSON verdict is named from.
+_LATEX_COLUMN_DEFAULT = ('benchmark', 'params', 'before', 'after', 'ratio', 'mark')
 
 
 def latex_columns(spec):
     """
     Parse a comma-separated ``--columns`` list for the LaTeX table.
 
-    ``ci`` is the ratio with its bootstrap interval. ``interval`` is that
-    interval without the point. ``aa`` is the A/A band. ``rounds`` is
-    how many interleaved rounds were recorded. ``verdict`` is worse,
-    better, or unchanged.
+    ``params`` is the parameter combination. ``mark`` is the significance
+    marker from the same record as the JSON verdict: ``+`` slower, ``-``
+    faster, ``~`` insignificant, ``!`` a new failure, ``*`` a fixed
+    failure, and ``x`` when versions differ. ``ci`` is the ratio with its
+    bootstrap interval. ``interval`` is that interval without the point.
+    ``aa`` is the A/A band. ``rounds`` is how many interleaved rounds were
+    recorded. ``verdict`` is worse, better, or unchanged.
     """
     if spec is None:
         return _LATEX_COLUMN_DEFAULT
@@ -409,7 +416,15 @@ def latex_columns(spec):
 
 
 def _latex_colspec(columns):
-    return ''.join('l' if column in ('benchmark', 'verdict') else 'r' for column in columns)
+    spec = []
+    for column in columns:
+        if column in ('benchmark', 'params', 'verdict'):
+            spec.append('l')
+        elif column == 'mark':
+            spec.append('c')
+        else:
+            spec.append('r')
+    return ''.join(spec)
 
 
 def _split_ratio_text(ratio):
@@ -439,19 +454,30 @@ def _github_cells(record):
 
 
 def _latex_parts(record):
-    """LaTeX cells for one comparison record."""
+    """
+    LaTeX cells for one comparison record.
+
+    Before, after, ratio, name, and parameters are the schema v1 fields.
+    The unit on each median is scaled on that row, including bytes.
+    """
+    before = record['before']
+    after = record['after']
+    params = ', '.join(str(item) for item in record['params'])
+    # Raw values keep failed (None) distinct from skipped (NaN). The unit
+    # and the finite median are the schema v1 fields.
     return {
-        'before': format_latex_value(
-            record['before_raw'], record['unit'], err=record['before_err']
-        ),
-        'after': format_latex_value(record['after_raw'], record['unit'], err=record['after_err']),
+        'before': format_latex_value(record['before_raw'], before['unit']),
+        'after': format_latex_value(record['after_raw'], after['unit']),
         'ratio_full': record['ratio_text'],
         'ratio_point': _split_ratio_text(record['ratio_text']),
+        'ratio_number': record['ratio'],
         'mark': record['mark'],
         'ci': record['ci'],
         'aa': record['band'],
         'rounds': record['rounds'],
-        'benchmark': latex_escape(record['display_name']),
+        'benchmark': latex_escape(record['name']),
+        'params': latex_escape(params),
+        'display': latex_escape(record['display_name']),
     }
 
 
@@ -472,8 +498,15 @@ def _public_record(record):
     }
 
 
+def _latex_ratio_number(ratio):
+    """Schema ratio, without a significance mark."""
+    if ratio is None:
+        return 'n/a'
+    return rf'\num{{{float(ratio):.2f}}}'
+
+
 def _latex_row(parts, columns):
-    mark_on_ratio = 'ratio' in columns and 'verdict' not in columns
+    mark_elsewhere = 'mark' in columns or 'verdict' in columns
     cells = []
     for column in columns:
         if column == 'before':
@@ -481,12 +514,24 @@ def _latex_row(parts, columns):
         elif column == 'after':
             cells.append(parts['after'])
         elif column == 'ratio':
-            point_only = 'ci' in columns or 'interval' in columns
-            text = parts['ratio_point'] if point_only else parts['ratio_full']
-            mark = ' ' if 'verdict' in columns else parts['mark']
-            cells.append(format_latex_ratio(mark, text))
+            if mark_elsewhere or 'ci' in columns or 'interval' in columns:
+                if 'ci' in columns or 'interval' in columns:
+                    text = parts['ratio_point']
+                    if text.startswith('~'):
+                        text = text[1:].strip()
+                    cells.append(format_latex_ratio(' ', text))
+                else:
+                    cells.append(_latex_ratio_number(parts['ratio_number']))
+            else:
+                cells.append(format_latex_ratio(parts['mark'], parts['ratio_full']))
+        elif column == 'mark':
+            label = '' if parts['mark'] is None else str(parts['mark']).strip()
+            # A tilde is stored on the ratio text, not in the mark field.
+            if not label and str(parts['ratio_full']).lstrip().startswith('~'):
+                label = '~'
+            cells.append(latex_escape(label))
         elif column == 'ci':
-            mark = ' ' if mark_on_ratio or 'verdict' in columns else parts['mark']
+            mark = ' ' if mark_elsewhere else parts['mark']
             cells.append(format_latex_interval(parts['ci'], mark))
         elif column == 'interval':
             cells.append(format_latex_bounds(parts['ci']))
@@ -497,8 +542,12 @@ def _latex_row(parts, columns):
             cells.append('n/a' if rounds is None else str(rounds))
         elif column == 'verdict':
             cells.append(format_latex_verdict(parts['mark']))
-        else:
+        elif column == 'params':
+            cells.append(parts['params'])
+        elif column == 'benchmark' and 'params' in columns:
             cells.append(parts['benchmark'])
+        else:
+            cells.append(parts['display'])
     return cells
 
 
@@ -1146,6 +1195,8 @@ class Compare(Command):
             'rounds': 'Rounds',
             'verdict': 'Verdict',
             'benchmark': 'Benchmark',
+            'params': 'Params',
+            'mark': 'Mark',
         }
         if columns is None:
             columns = _LATEX_COLUMN_DEFAULT

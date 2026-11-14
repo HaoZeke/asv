@@ -1,0 +1,18 @@
+% Requires \usepackage{booktabs,siunitx}
+
+\noindent
+\textbf{All benchmarks:}
+
+\begin{tabular}{llrrrc}
+\toprule
+Benchmark & Params & Before [\texttt{latexaaa}] & After [\texttt{latexbbb}] & Ratio & Mark \\
+\midrule
+both\_failed &  & failed & failed & n/a &  \\
+cost\_\&\%\#\$\{\}\textasciitilde{}\textasciicircum{}\textbackslash{} &  & \qty{1.00}{\second} & \qty{3.00}{\second} & \num{3.00} & + \\
+group.time\_param & \_\&\%\#\$\{\}\textasciitilde{}\textasciicircum{}\textbackslash{} line & \qty{1.00}{\second} & \qty{4.00}{\second} & \num{4.00} & + \\
+group.time\_param & plain & \qty{1.00}{\second} & failed & n/a & ! \\
+group.time\_param & skip & n/a & n/a & n/a &  \\
+introduced &  & \qty{1.00}{\second} & failed & n/a & ! \\
+only\_after &  & n/a & \qty{2}{\kilo\byte} & n/a &  \\
+\bottomrule
+\end{tabular}
