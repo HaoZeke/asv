@@ -1394,11 +1394,14 @@ class ParsedPipDeclaration:
                 self.pkgname = git_url_match.group(3)
             declaration = declaration.replace(git_url_match.group(0), '', 1)
 
-        # Match local paths
+        # Match local paths. Absolute paths keep every directory,
+        # so ``/repo/asv_bench_memray`` is not cut down to ``/repo``.
         local_pattern = (
-            r'(\.\/[a-zA-Z0-9-_]+\/?'  # Relative path starting with ./
-            r'|\.\.\/[a-zA-Z0-9-_]+\/?'  # Relative path starting with ../
-            r'|\/\w+\/?)'  # Absolute path
+            r'('
+            r'\./(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+/?'
+            r'|\.\./(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+/?'
+            r'|/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+/?'
+            r')'
         )
         local_match = re.search(local_pattern, declaration)
 

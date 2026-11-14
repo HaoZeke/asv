@@ -501,6 +501,17 @@ def mock_pip_caller(args):
                 'path': './numpy-dir',
             },
         ),
+        # Absolute paths keep every directory
+        (
+            "asv_bench_memray /src/checkouts/asv_bench_memray",
+            {
+                'pkgname': 'asv_bench_memray',
+                'specification': None,
+                'flags': [],
+                'is_editable': False,
+                'path': '/src/checkouts/asv_bench_memray',
+            },
+        ),
         # Package with dash
         (
             "my-package",
@@ -612,6 +623,10 @@ def pip_caller(args):
         ),
         # Test with a local path
         ("./localpackage/", ["install", "-v", "--upgrade", "./localpackage/"]),
+        (
+            "asv_bench_memray /src/checkouts/asv_bench_memray",
+            ["install", "-v", "--upgrade", "/src/checkouts/asv_bench_memray"],
+        ),
         # Test with flags
         (
             "numpy --install-option=\"--prefix=/my/path\"",
