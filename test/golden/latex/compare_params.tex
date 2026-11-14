@@ -1,0 +1,15 @@
+% Requires \usepackage{booktabs,siunitx}
+
+\noindent
+\textbf{All benchmarks:}
+
+\begin{tabular}{rrrl}
+\toprule
+Before [\texttt{aaaaaaaa}] & After [\texttt{bbbbbbbb}] & Ratio & Benchmark \\
+\midrule
+\qty{1.00}{\second} & \qty{1.00}{\second} & \num{1.00} & group.time\_grid(left, 1) \\
+\qty{2.00}{\second} & failed & ! n/a & group.time\_grid(left, 2) \\
+failed & \qty{3.00}{\second} & * n/a & group.time\_grid(right, 1) \\
+\qty{4.00}{\second} & \qty{8.00}{\second} & + \num{2.00} & group.time\_grid(right, 2) \\
+\bottomrule
+\end{tabular}
