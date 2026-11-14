@@ -7,6 +7,7 @@ from asv import _stats, config, util
 from asv.commands import make_argparser
 from asv.commands.compare import Compare
 from asv.commands.continuous import _apply_interleave_rounds
+from asv.commands.run import AA_ENV_SUFFIX, interleaved_slot_order
 
 from . import tools
 
@@ -33,10 +34,16 @@ def test_interleave_rounds_parsing():
     disabled = parser.parse_args(['continuous', '--no-interleave-rounds', 'feature'])
     assert disabled.interleave_rounds is False
     assert disabled.aa_band is False
+    assert disabled.aa_band_split is False
 
     band = parser.parse_args(['continuous', '--aa-band', '--interleave-rounds', '2', 'feature'])
     assert band.aa_band is True
+    assert band.aa_band_split is False
     assert band.interleave_round_count == 2
+
+    split = parser.parse_args(['continuous', '--aa-band-split', 'feature'])
+    assert split.aa_band is False
+    assert split.aa_band_split is True
 
 
 def test_apply_interleave_rounds_sets_rounds_attribute():
@@ -79,31 +86,51 @@ def test_ci_outside_band():
     assert not _stats.ci_outside_band((1.2, 1.05, 1.3), (1.0, 0.9, 1.05))
 
 
+def test_slot_rotation_includes_repeated_base():
+    base = ('base', '')
+    base_prime = ('base', AA_ENV_SUFFIX)
+    head = ('head', '')
+    slots = [base, base_prime, head]
+    assert interleaved_slot_order(slots, 1) == [base, base_prime, head]
+    assert interleaved_slot_order(slots, 2) == [base_prime, head, base]
+    assert interleaved_slot_order(slots, 3) == [head, base, base_prime]
+    assert interleaved_slot_order(slots, 4) == interleaved_slot_order(slots, 1)
+
+
 def test_aa_decision_on_deterministic_samples():
     flat = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     doubled = [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0]
     halved = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+    drifted = [1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5, 1.5]
 
-    ci, mark = _stats.interleaved_ratio_decision(flat, flat, use_aa_band=True)
+    ci, mark = _stats.interleaved_ratio_decision(flat, flat, aa_samples=flat)
     assert ci == (1.0, 1.0, 1.0)
     assert mark == ' '
 
-    ci, mark = _stats.interleaved_ratio_decision(flat, doubled, use_aa_band=True)
+    ci, mark = _stats.interleaved_ratio_decision(flat, doubled, aa_samples=flat)
     assert ci == (2.0, 2.0, 2.0)
     assert mark == '+'
 
-    ci, mark = _stats.interleaved_ratio_decision(flat, halved, use_aa_band=True)
+    ci, mark = _stats.interleaved_ratio_decision(flat, halved, aa_samples=flat)
     assert ci == (0.5, 0.5, 0.5)
     assert mark == '-'
 
-    # Without the A/A band the CI is reported and the mark is left alone.
-    ci, mark = _stats.interleaved_ratio_decision(flat, doubled, use_aa_band=False)
+    # Head matches the repeated base, so the CI sits on the A/A band.
+    ci, mark = _stats.interleaved_ratio_decision(flat, drifted, aa_samples=drifted)
+    assert ci == (1.5, 1.5, 1.5)
+    assert mark == ' '
+    # The half-split of a constant base is a point at 1 and would flag it.
+    ci, mark = _stats.interleaved_ratio_decision(flat, drifted, split_aa=True)
+    assert mark == '+'
+
+    # Without an A/A band the CI is reported and the mark is left alone.
+    ci, mark = _stats.interleaved_ratio_decision(flat, doubled)
     assert ci == (2.0, 2.0, 2.0)
     assert mark is None
     assert _stats.format_ratio_ci(ci) == '2.00 [2.00, 2.00]'
 
 
-def _result_row(value, samples):
+def _result_row(value, samples, env_name='py3'):
     stats = {
         'q_25': value,
         'q_75': value,
@@ -111,7 +138,7 @@ def _result_row(value, samples):
         'ci_99_a': value,
         'ci_99_b': value,
     }
-    return ('bench.time_it', [], [value], [stats], [samples], '1', 'cheetah', 'py3')
+    return ('bench.time_it', [], [value], [stats], [samples], '1', 'cheetah', env_name)
 
 
 def test_print_table_aa_band_uses_samples(capsys, tmpdir):
@@ -150,6 +177,7 @@ def test_print_table_aa_band_uses_samples(capsys, tmpdir):
         split=False,
         resultset_1=[_result_row(1.0, flat)],
         resultset_2=[_result_row(2.0, doubled)],
+        aa_resultset=[_result_row(1.0, flat, env_name='py3' + AA_ENV_SUFFIX)],
         bootstrap_ci=True,
         aa_band=True,
     )

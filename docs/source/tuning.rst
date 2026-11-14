@@ -21,12 +21,13 @@ run timing benchmarks at more widely spaced times, in order to average
 over long-time performance variations.
 
 ``asv continuous --interleave-rounds N`` uses that same rounds loop.
-It alternates the base and head commits for ``N`` rounds and flips
-the order every round, so a slow drift of the machine is sampled on
-both commits. Each ratio is reported with a bootstrap 95% confidence
-interval. ``--aa-band`` also compares the base samples with themselves
-and flags a change only when the ratio interval lies entirely outside
-that A/A band.
+``--aa-band`` adds a second copy of the base commit to the rotation
+(``base``, ``base'``, ``head``), moving the starting slot forward
+every round. The A/A band is the bootstrap interval of ``base'``
+against ``base``, so it includes round-to-round drift. A change is
+flagged only when the base-vs-head interval lies entirely outside
+that band. ``--aa-band-split`` is the older half-split of one base
+sample list. It misses that drift, and it is used only when asked for.
 
 If you are planning to capture historical benchmark data for most
 commits, very accurate timings are not necessary.  The detection of

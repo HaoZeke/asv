@@ -19,6 +19,22 @@ from . import Command, common_args
 from .setup import Setup
 from .show import Show
 
+# Environment-name suffix for the repeated base commit used by --aa-band.
+AA_ENV_SUFFIX = '~aa'
+
+
+def interleaved_slot_order(slots, display_round):
+    """
+    Rotate *slots* left by one place per round.
+
+    Round 1 keeps the given order, for example ``(base, base', head)``.
+    Round 2 starts at the next slot, and so on.
+    """
+    if not slots:
+        return []
+    shift = (display_round - 1) % len(slots)
+    return slots[shift:] + slots[:shift]
+
 
 def _do_build(args):
     env, conf, repo, commit_hash = args
@@ -269,6 +285,7 @@ class Run(Command):
         interleave_rounds=False,
         launch_method=None,
         durations=0,
+        commit_slots=None,
         _returns={},  # noqa: B006
     ):
         machine_params = Machine.load(machine_name=machine, _path=_machine_file, interactive=True)
@@ -388,8 +405,6 @@ class Run(Command):
                 log.error("No benchmarks selected")
                 return 1
 
-        benchmark_count = len(benchmarks)
-
         parallel, multiprocessing = util.get_multiprocessing(parallel)
 
         _returns['benchmarks'] = benchmarks
@@ -428,9 +443,16 @@ class Run(Command):
                 except OSError:
                     pass
 
+        # --aa-band adds a second copy of the base commit as its own slot.
+        # Each slot is (checkout hash, result env-name suffix).
+        if commit_slots is None:
+            schedule = [(commit_hash, '') for commit_hash in commit_hashes]
+        else:
+            schedule = list(commit_slots)
+
         # Count work that will actually run (respects -k / skip-existing*).
         steps = 0
-        for commit_hash in commit_hashes:
+        for commit_hash, _env_suffix in schedule:
             if commit_hash in skipped_benchmarks and skipped_benchmarks[commit_hash] is True:
                 continue
             for env in environments:
@@ -441,7 +463,7 @@ class Run(Command):
 
         log.info(
             f"Running {steps} total benchmarks "
-            f"({len(commit_hashes)} commits * {len(environments)} "
+            f"({len(schedule)} commits * {len(environments)} "
             f"environments * {len(benchmarks)} benchmarks"
             + (
                 "; after skip-existing filters"
@@ -468,16 +490,21 @@ class Run(Command):
 
         def iter_rounds_commits():
             for run_rounds in run_round_set:
-                if interleave_rounds and run_rounds[0] % 2 == 0:
-                    for commit_hash in commit_hashes[::-1]:
-                        yield run_rounds, commit_hash
+                if commit_slots is not None and interleave_rounds:
+                    # Rotate base, base', head (or any explicit slot list).
+                    display_round = max_rounds - run_rounds[0] + 1
+                    order = interleaved_slot_order(schedule, display_round)
+                elif interleave_rounds and run_rounds[0] % 2 == 0:
+                    order = list(reversed(schedule))
                 else:
-                    for commit_hash in commit_hashes:
-                        yield run_rounds, commit_hash
+                    order = schedule
+                for slot in order:
+                    yield run_rounds, slot
 
         build_durations = defaultdict(lambda: 0)
 
-        for run_rounds, commit_hash in iter_rounds_commits():
+        for run_rounds, slot in iter_rounds_commits():
+            commit_hash, env_suffix = slot
             if commit_hash in skipped_benchmarks and skipped_benchmarks[commit_hash] is True:
                 continue
 
@@ -497,14 +524,14 @@ class Run(Command):
                     round_info = ""
 
                 commit_name = repo.get_decorated_hash(commit_hash, 8)
+                if env_suffix == AA_ENV_SUFFIX:
+                    commit_name = f"{commit_name} (base')"
                 log.info(f"For {conf.project} commit {commit_name}{round_info}:")
 
             with log.indent():
                 for subenv in util.iter_chunks(active_environments, parallel):
                     successes = {
-                        env.name: (True, 0)
-                        for env in subenv
-                        if not env.can_install_project()
+                        env.name: (True, 0) for env in subenv if not env.can_install_project()
                     }
                     successes.update(
                         {
@@ -517,8 +544,7 @@ class Run(Command):
                     env_to_install = [
                         env
                         for env in subenv
-                        if env.can_install_project()
-                        and env.installed_commit_hash != commit_hash
+                        if env.can_install_project() and env.installed_commit_hash != commit_hash
                     ]
 
                     subenv_name = ', '.join([x.name for x in env_to_install])
@@ -576,7 +602,7 @@ class Run(Command):
                             commit_hash,
                             repo.get_date(commit_hash),
                             env.python,
-                            env.name,
+                            env.name + env_suffix,
                             env.env_vars,
                         )
 

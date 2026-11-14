@@ -10,7 +10,7 @@ from ..console import log
 from ..repo import NoSuchNameError, get_repo
 from . import Command, common_args
 from .compare import Compare
-from .run import Run
+from .run import AA_ENV_SUFFIX, Run
 
 
 def _rewrite_interleave_rounds(args):
@@ -44,7 +44,7 @@ def _apply_interleave_rounds(interleave_rounds, attribute, quick, aa_band):
     Map ``--interleave-rounds N`` onto the existing rounds machinery.
 
     An integer enables interleaving and sets the ``rounds`` attribute to
-    N, which ``asv run`` already uses to flip commit order each round.
+    N, which ``asv run`` already uses to walk commits each round.
     Returns ``(interleave_rounds, attribute, report_ci)``.
     """
     report_ci = False
@@ -118,9 +118,17 @@ class Continuous(Command):
         parser.add_argument(
             "--aa-band",
             action="store_true",
-            help="""With interleaved rounds, compare the base commit with
-            itself and flag a change only when the ratio's 95%% CI lies
-            entirely outside that A/A band.""",
+            help="""Run a second copy of the base commit in the round
+            rotation (base, base', head, rotated each round). Flag a
+            change only when the ratio's 95%% CI lies entirely outside
+            the band of base' against base.""",
+        )
+        parser.add_argument(
+            "--aa-band-split",
+            action="store_true",
+            help="""Fallback A/A band that splits the base samples in
+            half. Both halves share the same rounds, so the band misses
+            round-to-round drift. Prefer --aa-band.""",
         )
         # Backward compatibility for '--(no-)interleave-rounds'
         parser.add_argument(
@@ -177,6 +185,7 @@ class Continuous(Command):
             interleave_rounds=args.interleave_rounds,
             interleave_round_count=args.interleave_round_count,
             aa_band=args.aa_band,
+            aa_band_split=args.aa_band_split,
             launch_method=args.launch_method,
             **kwargs,
         )
@@ -203,13 +212,16 @@ class Continuous(Command):
         interleave_rounds=None,
         interleave_round_count=None,
         aa_band=False,
+        aa_band_split=False,
         launch_method=None,
         _machine_file=None,
     ):
+        if aa_band and aa_band_split:
+            raise util.UserError("Pass only one of --aa-band and --aa-band-split")
         if interleave_round_count is not None:
             interleave_rounds = interleave_round_count
         interleave_rounds, attribute, report_ci = _apply_interleave_rounds(
-            interleave_rounds, attribute, quick, aa_band
+            interleave_rounds, attribute, quick, aa_band or aa_band_split
         )
 
         repo = get_repo(conf)
@@ -229,6 +241,16 @@ class Continuous(Command):
             raise util.UserError(f"Unknown commit {exc}")
 
         commit_hashes = [head, parent]
+        # Real A/A: base, a second checkout of base, then head.
+        # The repeated base is stored under a distinct environment suffix
+        # so its samples do not merge into the base result file.
+        commit_slots = None
+        if aa_band:
+            commit_slots = [
+                (parent, ''),
+                (parent, AA_ENV_SUFFIX),
+                (head, ''),
+            ]
         run_objs = {}
 
         result = Run.run(
@@ -244,6 +266,7 @@ class Continuous(Command):
             quick=quick,
             interleave_rounds=interleave_rounds,
             launch_method=launch_method,
+            commit_slots=commit_slots,
             _returns=run_objs,
             _machine_file=_machine_file,
         )
@@ -252,10 +275,10 @@ class Continuous(Command):
 
         log.flush()
 
-        def results_iter(commit_hash):
+        def results_iter(commit_hash, env_suffix=''):
             for env in run_objs['environments']:
                 machine_name = run_objs['machine_params']['machine']
-                filename = results.get_filename(machine_name, commit_hash, env.name)
+                filename = results.get_filename(machine_name, commit_hash, env.name + env_suffix)
                 filename = os.path.join(conf.results_dir, filename)
                 try:
                     result = results.Results.load(filename, machine_name)
@@ -291,6 +314,8 @@ class Continuous(Command):
             commit_names=commit_names,
             bootstrap_ci=report_ci,
             aa_band=aa_band,
+            aa_split=aa_band_split,
+            aa_resultset=results_iter(parent, AA_ENV_SUFFIX) if aa_band else None,
         )
         worsened, improved = status
 

@@ -718,13 +718,22 @@ Continuous comparisons
 ~~~~~~~~~~~~~~~~~~~~~~
 
 ``asv continuous`` runs the base commit and the commit under test.
-``--interleave-rounds N`` alternates those two commits for ``N`` rounds
-in one process, flipping which one goes first each round, using the
-same rounds machinery as ``asv run --interleave-rounds``. The ratio
-column then includes a bootstrap 95% confidence interval::
+``--interleave-rounds N`` runs them for ``N`` rounds in one process.
+``--aa-band`` inserts a second copy of the base commit and rotates
+``base``, ``base'``, ``head`` each round. The ratio column includes a
+bootstrap 95% confidence interval, and a change is flagged only when
+that interval lies entirely outside the ``base'`` / ``base`` band.
+``--aa-band-split`` instead splits one base sample list in half. That
+estimate is optimistic because both halves share the same rounds.
 
-    asv continuous main HEAD --interleave-rounds 4
+On a small fixture with one unchanged loop and one loop that does 3%
+more work on the head commit, 20 rounds produced:
 
-``--aa-band`` measures an A/A interval by splitting the base samples in
-half and flags a change only when the base-vs-head interval lies
-entirely outside it.
+.. code-block:: text
+
+   time_noop   ratio 1.00 [0.99, 1.01]   A/A 0.99 [0.98, 1.00]   not flagged
+   time_slow   ratio 1.03 [1.02, 1.04]   A/A 0.99 [0.99, 1.01]   flagged
+
+::
+
+    asv continuous main HEAD --interleave-rounds 20 --aa-band

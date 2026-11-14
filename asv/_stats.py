@@ -298,12 +298,13 @@ def bootstrap_median_ratio_ci(before, after, n_resamples=10000, alpha=0.05, seed
     return point, low, high
 
 
-def aa_ratio_band(samples, n_resamples=10000, alpha=0.05, seed=1):
+def split_half_aa_band(samples, n_resamples=10000, alpha=0.05, seed=1):
     """
-    A/A band: bootstrap CI of the ratio of the first half of *samples*
-    to the second half. This is the spread expected when a commit is
-    compared with itself. Returns the same triple as
-    ``bootstrap_median_ratio_ci``, or ``None`` when the halves are too
+    Fallback A/A band from splitting one sample list in half.
+
+    Both halves come from the same rounds, so this misses round-to-round
+    drift and is optimistic. Callers must opt in. Returns the same triple
+    as ``bootstrap_median_ratio_ci``, or ``None`` when the halves are too
     small.
     """
     values = _as_float_list(samples)
@@ -319,6 +320,10 @@ def aa_ratio_band(samples, n_resamples=10000, alpha=0.05, seed=1):
     )
 
 
+# Older name for the split-half fallback.
+aa_ratio_band = split_half_aa_band
+
+
 def ci_outside_band(ci, band):
     """
     True when the ratio interval lies entirely outside the A/A band.
@@ -331,22 +336,35 @@ def ci_outside_band(ci, band):
     return ci_high < band_low or ci_low > band_high
 
 
-def interleaved_ratio_decision(before, after, use_aa_band=False, n_resamples=10000, seed=1):
+def interleaved_ratio_decision(
+    before,
+    after,
+    aa_samples=None,
+    split_aa=False,
+    n_resamples=10000,
+    seed=1,
+):
     """
     Ratio of *after* to *before* with a bootstrap 95% CI.
 
     Returns ``(ci, mark)``. ``ci`` is ``(ratio, low, high)`` or ``None``.
     ``mark`` is ``None`` when the caller should keep its own significance
-    mark. When *use_aa_band* is set, ``mark`` is ``'+'`` or ``'-'`` only
-    if the CI lies entirely outside the base-vs-base band, and ``' '``
-    otherwise.
+    mark. When *aa_samples* (a separate base copy) or *split_aa* is set,
+    ``mark`` is ``'+'`` or ``'-'`` only if the CI lies entirely outside
+    the A/A band, and ``' '`` otherwise. *aa_samples* is the repeated
+    base run. *split_aa* is the optimistic half-split fallback.
     """
     ci = bootstrap_median_ratio_ci(before, after, n_resamples=n_resamples, seed=seed)
-    if not use_aa_band:
+    if aa_samples is None and not split_aa:
         return ci, None
     if ci is None:
         return None, ' '
-    band = aa_ratio_band(before, n_resamples=n_resamples, seed=seed + 1)
+    if split_aa:
+        band = split_half_aa_band(before, n_resamples=n_resamples, seed=seed + 1)
+    else:
+        band = bootstrap_median_ratio_ci(
+            before, aa_samples, n_resamples=n_resamples, seed=seed + 1
+        )
     if band is None or not ci_outside_band(ci, band):
         return ci, ' '
     if ci[0] > 1:

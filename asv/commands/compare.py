@@ -475,6 +475,8 @@ class Compare(Command):
         only_body=False,
         bootstrap_ci=False,
         aa_band=False,
+        aa_split=False,
+        aa_resultset=None,
     ):
         if table_format not in ('github', 'latex'):
             raise ValueError(f"Unknown 'table_format' {table_format!r}")
@@ -541,6 +543,19 @@ class Compare(Command):
                 results_2[(name, machine_env_name)] = value
                 ss_2[(name, machine_env_name)] = (stats, samples)
                 versions_2[(name, machine_env_name)] = version
+
+        # Samples from the repeated base slot (base'), keyed like the base row.
+        aa_sample_map = {}
+        if aa_resultset is not None:
+            from .run import AA_ENV_SUFFIX
+
+            for key, params, value, stats, samples, version, machine, env_name in aa_resultset:
+                env_name = env_name.removesuffix(AA_ENV_SUFFIX)
+                machine_env_name = f"{machine}/{env_name}"
+                for name, _value, _sample_stats, samples in unroll_result(
+                    key, params, value, stats, samples
+                ):
+                    aa_sample_map[(name, machine_env_name)] = samples
 
         if len(results_1) == 0:
             raise util.UserError(f"Did not find results for commit {hash_1}")
@@ -635,7 +650,7 @@ class Compare(Command):
             ):
                 color = 'green'
                 mark = '-'
-                if not aa_band:
+                if not (aa_band or aa_split):
                     improved = True
             elif _is_result_better(
                 time_1,
@@ -647,7 +662,7 @@ class Compare(Command):
             ):
                 color = 'red'
                 mark = '+'
-                if not aa_band:
+                if not (aa_band or aa_split):
                     worsened = True
             else:
                 color = 'default'
@@ -659,13 +674,20 @@ class Compare(Command):
                 ):
                     ratio = "~" + ratio.strip()
 
-            if (bootstrap_ci or aa_band) and mark not in ('x', '!', '*'):
+            if (bootstrap_ci or aa_band or aa_split) and mark not in ('x', '!', '*'):
                 before_samples = ss_1.get(benchmark, (None, None))[1]
                 after_samples = ss_2.get(benchmark, (None, None))[1]
+                if aa_band:
+                    paired = aa_sample_map.get(benchmark)
+                    # Missing base' samples must not fall back to the split.
+                    paired_arg = paired if paired is not None else []
+                else:
+                    paired_arg = None
                 ci, aa_mark = _stats.interleaved_ratio_decision(
                     before_samples,
                     after_samples,
-                    use_aa_band=aa_band,
+                    aa_samples=paired_arg,
+                    split_aa=aa_split,
                 )
                 if ci is not None:
                     shown = _stats.format_ratio_ci(ci)
@@ -809,7 +831,7 @@ class Compare(Command):
                         print()
                     print(table)
 
-        if aa_band:
+        if aa_band or aa_split:
             worsened = worsened or aa_worsened
             improved = improved or aa_improved
         return worsened, improved
