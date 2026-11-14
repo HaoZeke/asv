@@ -726,13 +726,29 @@ that interval lies entirely outside the ``base'`` / ``base`` band.
 ``--aa-band-split`` instead splits one base sample list in half. That
 estimate is optimistic because both halves share the same rounds.
 
+Each round's samples are stored on the result, including a round that
+failed. The ratio CI and the A/A band are stored with the head commit.
+``asv compare`` reads them back, so a later comparison shows the same
+interval and band. A failed round is reported and the other rounds and
+benchmarks still run. ``--bench`` and several environments are part of
+that same rotation.
+
+With ``--format=latex``, ``--columns`` chooses the cells. ``ci`` is the
+ratio and its interval, and ``aa`` is the A/A band. Both are siunitx
+``\\num`` values. The default columns stay before, after, ratio, and
+benchmark.
+
+.. code-block:: console
+
+   $ asv compare main HEAD --format=latex --columns=before,after,ci,aa,benchmark
+
 On a small fixture with one unchanged loop and one loop that does 3%
 more work on the head commit, 20 rounds produced:
 
 .. code-block:: text
 
-   time_noop   ratio 1.00 [0.99, 1.01]   A/A 0.99 [0.98, 1.00]   not flagged
-   time_slow   ratio 1.03 [1.02, 1.04]   A/A 0.99 [0.99, 1.01]   flagged
+   time_noop   ratio 1.00 [0.98, 1.01]   A/A 1.00 [0.98, 1.00]   not flagged
+   time_slow   ratio 1.04 [1.03, 1.05]   A/A 1.01 [1.00, 1.02]   flagged
 
 ::
 

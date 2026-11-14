@@ -5,11 +5,11 @@ import os
 
 from asv_runner.console import color_print
 
-from .. import results, util
+from .. import _stats, results, util
 from ..console import log
 from ..repo import NoSuchNameError, get_repo
 from . import Command, common_args
-from .compare import Compare
+from .compare import Compare, unroll_result
 from .run import AA_ENV_SUFFIX, Run
 
 
@@ -253,7 +253,7 @@ class Continuous(Command):
             ]
         run_objs = {}
 
-        result = Run.run(
+        run_status = Run.run(
             conf,
             range_spec=commit_hashes,
             bench=bench,
@@ -270,8 +270,10 @@ class Continuous(Command):
             _returns=run_objs,
             _machine_file=_machine_file,
         )
-        if result:
-            return result
+        # 1 means nothing ran. 2 means a benchmark failed; the other
+        # benchmarks and rounds still have results, so the table is printed.
+        if run_status == 1 or 'environments' not in run_objs:
+            return run_status
 
         log.flush()
 
@@ -300,6 +302,18 @@ class Continuous(Command):
             head: repo.get_name_from_hash(head),
         }
 
+        if interleave_rounds or aa_band or aa_band_split:
+            stored_ci, stored_band = _store_interleaved_comparisons(
+                conf,
+                run_objs,
+                parent,
+                head,
+                aa_band=aa_band,
+                aa_split=aa_band_split,
+            )
+        else:
+            stored_ci, stored_band = None, None
+
         status = Compare.print_table(
             conf,
             parent,
@@ -316,6 +330,8 @@ class Continuous(Command):
             aa_band=aa_band,
             aa_split=aa_band_split,
             aa_resultset=results_iter(parent, AA_ENV_SUFFIX) if aa_band else None,
+            stored_ci=stored_ci,
+            stored_band=stored_band,
         )
         worsened, improved = status
 
@@ -329,4 +345,98 @@ class Continuous(Command):
         else:
             color_print("BENCHMARKS NOT SIGNIFICANTLY CHANGED.", 'green')
 
+        if run_status:
+            return run_status
         return worsened
+
+
+def _as_ci_list(ci):
+    if ci is None:
+        return None
+    return [ci[0], ci[1], ci[2]]
+
+
+def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_split):
+    """
+    Write the ratio CI and A/A band into the head result files.
+
+    Returns ``(stored_ci, stored_band)`` keyed by ``(benchmark, machine/env)``
+    for the comparison table. Per-round samples are already in the files.
+    """
+    stored_ci = {}
+    stored_band = {}
+    machine_name = run_objs['machine_params']['machine']
+    benchmarks = run_objs['benchmarks']
+
+    for env in run_objs['environments']:
+        machine_env = f"{machine_name}/{env.name}"
+        head_path = os.path.join(
+            conf.results_dir, results.get_filename(machine_name, head, env.name)
+        )
+        base_path = os.path.join(
+            conf.results_dir, results.get_filename(machine_name, parent, env.name)
+        )
+        if not os.path.isfile(head_path) or not os.path.isfile(base_path):
+            continue
+        try:
+            head_result = results.Results.load(head_path, machine_name)
+            base_result = results.Results.load(base_path, machine_name)
+        except util.UserError as err:
+            log.warning(str(err))
+            continue
+        aa_result = None
+        if aa_band:
+            aa_path = os.path.join(
+                conf.results_dir,
+                results.get_filename(machine_name, parent, env.name + AA_ENV_SUFFIX),
+            )
+            if os.path.isfile(aa_path):
+                try:
+                    aa_result = results.Results.load(aa_path, machine_name)
+                except util.UserError as err:
+                    log.warning(str(err))
+
+        ratio_ci = {}
+        aa_bands = {}
+        for name, benchmark in benchmarks.items():
+            if name not in head_result.get_all_result_keys():
+                continue
+            if name not in base_result.get_all_result_keys():
+                continue
+            params = benchmark['params']
+            before = base_result.get_result_samples(name, params)
+            after = head_result.get_result_samples(name, params)
+            paired = None
+            if aa_result is not None and name in aa_result.get_all_result_keys():
+                paired = aa_result.get_result_samples(name, params)
+            count = max(len(before), len(after))
+            cis = []
+            bands = []
+            for index in range(count):
+                before_samples = before[index] if index < len(before) else None
+                after_samples = after[index] if index < len(after) else None
+                paired_samples = (
+                    paired[index] if paired is not None and index < len(paired) else None
+                )
+                ci = _stats.bootstrap_median_ratio_ci(before_samples, after_samples)
+                if aa_band:
+                    band = _stats.bootstrap_median_ratio_ci(before_samples, paired_samples, seed=2)
+                elif aa_split:
+                    band = _stats.split_half_aa_band(before_samples, seed=2)
+                else:
+                    band = None
+                cis.append(_as_ci_list(ci))
+                bands.append(_as_ci_list(band))
+            ratio_ci[name] = cis
+            if aa_band or aa_split:
+                aa_bands[name] = bands
+            for unrolled, ci_row, band_row in unroll_result(name, params, cis, bands):
+                stored_ci[(unrolled, machine_env)] = ci_row
+                if aa_band or aa_split:
+                    stored_band[(unrolled, machine_env)] = band_row
+
+        if ratio_ci:
+            head_result.set_comparison(parent, ratio_ci, aa_bands or None)
+            head_result.save(conf.results_dir)
+
+    return stored_ci, stored_band

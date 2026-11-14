@@ -287,6 +287,88 @@ def format_latex_ratio(mark, ratio):
     return ' '.join(parts) + ' ' + body
 
 
+def format_latex_interval(ci, mark=' '):
+    """
+    Format ``(point, low, high)`` as siunitx numbers.
+
+    The cell is ``\\num{point}\\,[\\num{low}, \\num{high}]``. A missing
+    interval is ``n/a``. A significance mark is prefixed when *mark* is set.
+    """
+    if ci is None:
+        body = 'n/a'
+    else:
+        point, low, high = ci
+        body = rf'\num{{{point:.2f}}}\,[\num{{{low:.2f}}}, \num{{{high:.2f}}}]'
+    label = '' if mark is None else str(mark).strip()
+    if not label:
+        return body
+    if body == 'n/a':
+        return label + ' n/a'
+    return label + ' ' + body
+
+
+_LATEX_COLUMN_CHOICES = ('before', 'after', 'ratio', 'ci', 'aa', 'benchmark')
+_LATEX_COLUMN_DEFAULT = ('before', 'after', 'ratio', 'benchmark')
+
+
+def latex_columns(spec):
+    """
+    Parse a comma-separated ``--columns`` list for the LaTeX table.
+
+    ``ci`` is the ratio with its bootstrap interval. ``aa`` is the A/A band.
+    """
+    if spec is None:
+        return _LATEX_COLUMN_DEFAULT
+    if isinstance(spec, (list, tuple)):
+        names = tuple(spec)
+    else:
+        names = tuple(part.strip() for part in str(spec).split(',') if part.strip())
+    unknown = [name for name in names if name not in _LATEX_COLUMN_CHOICES]
+    if not names or unknown:
+        choices = ', '.join(_LATEX_COLUMN_CHOICES)
+        raise util.UserError(f"Unknown --columns {spec!r}. Choices: {choices}")
+    return names
+
+
+def _latex_colspec(columns):
+    return ''.join('l' if column == 'benchmark' else 'r' for column in columns)
+
+
+def _split_ratio_text(ratio):
+    """Split ``~1.05 [1.00, 1.10]`` into the point text and the interval."""
+    text = ratio.strip()
+    tilde = text.startswith('~')
+    body = text[1:].strip() if tilde else text
+    point = body
+    if ' [' in body and body.endswith(']'):
+        point, _rest = body.split(' [', 1)
+    point = point.strip()
+    if tilde:
+        point = '~' + point
+    return point
+
+
+def _latex_row(parts, columns):
+    mark_on_ratio = 'ratio' in columns
+    cells = []
+    for column in columns:
+        if column == 'before':
+            cells.append(parts['before'])
+        elif column == 'after':
+            cells.append(parts['after'])
+        elif column == 'ratio':
+            text = parts['ratio_point'] if 'ci' in columns else parts['ratio_full']
+            cells.append(format_latex_ratio(parts['mark'], text))
+        elif column == 'ci':
+            mark = ' ' if mark_on_ratio else parts['mark']
+            cells.append(format_latex_interval(parts['ci'], mark))
+        elif column == 'aa':
+            cells.append(format_latex_interval(parts['aa']))
+        else:
+            cells.append(parts['benchmark'])
+    return cells
+
+
 def format_latex_tabular(rows, headers, only_body=False, colspec='rrrl'):
     """
     Render *rows* as a booktabs tabular.
@@ -352,6 +434,16 @@ class Compare(Command):
         )
 
         parser.add_argument(
+            '--columns',
+            default=None,
+            help="""With --format=latex, comma-separated columns to emit.
+            Choices: before, after, ratio, ci, aa, benchmark. The default
+            is before,after,ratio,benchmark. ci is the ratio and its
+            bootstrap interval, and aa is the A/A band. Both use siunitx
+            \\num values.""",
+        )
+
+        parser.add_argument(
             '--only-body',
             action='store_true',
             help="""With --format=latex, emit only the tabular body:
@@ -380,6 +472,7 @@ class Compare(Command):
             use_stats=args.use_stats,
             table_format=args.table_format,
             only_body=args.only_body,
+            columns=args.columns,
         )
 
     @classmethod
@@ -397,7 +490,11 @@ class Compare(Command):
         use_stats=True,
         table_format='github',
         only_body=False,
+        columns=None,
     ):
+        if columns is not None and table_format != 'latex':
+            raise util.UserError("--columns applies to --format=latex")
+        columns = latex_columns(columns) if table_format == 'latex' else None
         repo = get_repo(conf)
         try:
             hash_1 = repo.get_hash_from_name(hash_1)
@@ -453,6 +550,7 @@ class Compare(Command):
             commit_names=commit_names,
             table_format=table_format,
             only_body=only_body,
+            columns=columns,
         )
 
     @classmethod
@@ -477,11 +575,18 @@ class Compare(Command):
         aa_band=False,
         aa_split=False,
         aa_resultset=None,
+        stored_ci=None,
+        stored_band=None,
+        columns=None,
     ):
         if table_format not in ('github', 'latex'):
             raise ValueError(f"Unknown 'table_format' {table_format!r}")
         if only_body and table_format != 'latex':
             raise util.UserError("--only-body applies to --format=latex")
+        if columns is not None and table_format != 'latex':
+            raise util.UserError("--columns applies to --format=latex")
+        if table_format == 'latex':
+            columns = latex_columns(columns)
         results_1 = {}
         results_2 = {}
         ss_1 = {}
@@ -495,34 +600,84 @@ class Compare(Command):
         if commit_names is None:
             commit_names = {}
 
-        def results_default_iter(commit_hash):
+        from .run import AA_ENV_SUFFIX
+
+        failed_notes = []
+        disk_ci = {}
+        disk_band = {}
+        aa_rows = []
+
+        def _env_allowed(env_name):
+            if env_names is None:
+                return True
+            plain = env_name.removesuffix(AA_ENV_SUFFIX)
+            return env_name in env_names or plain in env_names
+
+        def _fill_stored(result, comp, machine_env):
+            ratio_ci = comp.get('ratio_ci') or {}
+            band_map = comp.get('aa_band') or {}
+            for key, cis in ratio_ci.items():
+                params = result._benchmark_params.get(key) or []
+                bands = band_map.get(key)
+                if bands is None:
+                    bands = [None] * len(cis)
+                for name, ci_row, band_row in unroll_result(key, params, cis, bands):
+                    disk_ci[(name, machine_env)] = ci_row
+                    if key in band_map:
+                        disk_band[(name, machine_env)] = band_row
+
+        def _rows_from_disk(commit_hash, other_hash, collect_stored):
+            rows = []
             for result in iter_results_for_machine_and_hash(
                 conf.results_dir, machine, commit_hash
             ):
-                if env_names is not None and result.env_name not in env_names:
+                if not _env_allowed(result.env_name):
                     continue
+                is_aa = result.env_name.endswith(AA_ENV_SUFFIX)
+                env_name = result.env_name.removesuffix(AA_ENV_SUFFIX)
+                machine_name = result.params['machine']
+                machine_env = f"{machine_name}/{env_name}"
+                label = machine_env + (" base'" if is_aa else "")
+                for bench_name, rounds in result.failed_rounds.items():
+                    for number in rounds:
+                        failed_notes.append((bench_name, label, number))
+                if collect_stored and not is_aa:
+                    comp = result.get_comparison(other_hash)
+                    if comp:
+                        _fill_stored(result, comp, machine_env)
                 for key in result.get_all_result_keys():
                     params = result.get_result_params(key)
-                    result_value = result.get_result_value(key, params)
-                    result_stats = result.get_result_stats(key, params)
-                    result_samples = result.get_result_samples(key, params)
-                    result_version = result.benchmark_version.get(key)
-                    yield (
+                    row = (
                         key,
                         params,
-                        result_value,
-                        result_stats,
-                        result_samples,
-                        result_version,
-                        result.params['machine'],
+                        result.get_result_value(key, params),
+                        result.get_result_stats(key, params),
+                        result.get_result_samples(key, params),
+                        result.benchmark_version.get(key),
+                        machine_name,
                         result.env_name,
                     )
+                    if is_aa:
+                        aa_rows.append(row)
+                    else:
+                        rows.append(row)
+            return rows
 
         if resultset_1 is None:
-            resultset_1 = results_default_iter(hash_1)
+            resultset_1 = _rows_from_disk(hash_1, hash_2, False)
 
         if resultset_2 is None:
-            resultset_2 = results_default_iter(hash_2)
+            resultset_2 = _rows_from_disk(hash_2, hash_1, True)
+
+        if aa_resultset is None and aa_rows:
+            aa_resultset = aa_rows
+            if stored_ci is None and not disk_band:
+                aa_band = True
+
+        if stored_ci is None and disk_ci:
+            stored_ci = disk_ci
+        if stored_band is None and disk_band:
+            stored_band = disk_band
 
         machine_env_names = set()
 
@@ -584,6 +739,13 @@ class Compare(Command):
         aa_improved = False
 
         for benchmark in joint_benchmarks:
+            row_band = None if stored_band is None else stored_band.get(benchmark)
+            if row_band is not None:
+                row_band = tuple(row_band)
+            suppress_factor = aa_band or aa_split or row_band is not None
+            ci_value = None
+            band_value = None
+
             if benchmark in results_1:
                 time_1 = results_1[benchmark]
             else:
@@ -650,7 +812,7 @@ class Compare(Command):
             ):
                 color = 'green'
                 mark = '-'
-                if not (aa_band or aa_split):
+                if not suppress_factor:
                     improved = True
             elif _is_result_better(
                 time_1,
@@ -662,7 +824,7 @@ class Compare(Command):
             ):
                 color = 'red'
                 mark = '+'
-                if not (aa_band or aa_split):
+                if not suppress_factor:
                     worsened = True
             else:
                 color = 'default'
@@ -674,7 +836,12 @@ class Compare(Command):
                 ):
                     ratio = "~" + ratio.strip()
 
-            if (bootstrap_ci or aa_band or aa_split) and mark not in ('x', '!', '*'):
+            has_stored_ci = stored_ci is not None and benchmark in stored_ci
+            if (bootstrap_ci or aa_band or aa_split or has_stored_ci) and mark not in (
+                'x',
+                '!',
+                '*',
+            ):
                 before_samples = ss_1.get(benchmark, (None, None))[1]
                 after_samples = ss_2.get(benchmark, (None, None))[1]
                 if aa_band:
@@ -683,12 +850,37 @@ class Compare(Command):
                     paired_arg = paired if paired is not None else []
                 else:
                     paired_arg = None
-                ci, aa_mark = _stats.interleaved_ratio_decision(
-                    before_samples,
-                    after_samples,
-                    aa_samples=paired_arg,
-                    split_aa=aa_split,
-                )
+                if has_stored_ci:
+                    ci = stored_ci[benchmark]
+                    ci = None if ci is None else tuple(ci)
+                    band = row_band
+                    if ci is None:
+                        aa_mark = ' ' if suppress_factor else None
+                    elif band is None and not (aa_band or aa_split):
+                        aa_mark = None
+                    elif band is None or not _stats.ci_outside_band(ci, band):
+                        aa_mark = ' '
+                    elif ci[0] > 1:
+                        aa_mark = '+'
+                    elif ci[0] < 1:
+                        aa_mark = '-'
+                    else:
+                        aa_mark = ' '
+                else:
+                    ci, aa_mark = _stats.interleaved_ratio_decision(
+                        before_samples,
+                        after_samples,
+                        aa_samples=paired_arg,
+                        split_aa=aa_split,
+                    )
+                    if aa_split:
+                        band = _stats.split_half_aa_band(before_samples, seed=2)
+                    elif aa_band and paired_arg:
+                        band = _stats.bootstrap_median_ratio_ci(before_samples, paired_arg, seed=2)
+                    else:
+                        band = None
+                ci_value = ci
+                band_value = band
                 if ci is not None:
                     shown = _stats.format_ratio_ci(ci)
                     tilde = ratio.startswith('~') and aa_mark is None
@@ -725,15 +917,19 @@ class Compare(Command):
                 ratio.strip(),
                 benchmark_name,
             ]
-            latex_row = (
-                format_latex_value(time_1, unit, err_1),
-                format_latex_value(time_2, unit, err_2),
-                format_latex_ratio(mark, ratio),
-                latex_escape(benchmark_name),
-            )
+            latex_parts = {
+                'before': format_latex_value(time_1, unit, err_1),
+                'after': format_latex_value(time_2, unit, err_2),
+                'ratio_full': ratio.strip(),
+                'ratio_point': _split_ratio_text(ratio),
+                'mark': mark,
+                'ci': ci_value,
+                'aa': band_value,
+                'benchmark': latex_escape(benchmark_name),
+            }
             # Keep the text cells alongside the LaTeX row so --sort still
             # orders both formats the way the markdown table always has.
-            record = (split_line, latex_row)
+            record = (split_line, latex_parts)
             if split:
                 bench[color].append(record)
             else:
@@ -772,12 +968,17 @@ class Compare(Command):
             'Ratio',
             'Benchmark (Parameter)',
         ]
-        latex_headers = [
-            _latex_revision_header('Before', hash_1, name_1),
-            _latex_revision_header('After', hash_2, name_2),
-            'Ratio',
-            'Benchmark',
-        ]
+        latex_header_for = {
+            'before': _latex_revision_header('Before', hash_1, name_1),
+            'after': _latex_revision_header('After', hash_2, name_2),
+            'ratio': 'Ratio',
+            'ci': 'Ratio CI',
+            'aa': 'A/A',
+            'benchmark': 'Benchmark',
+        }
+        if columns is None:
+            columns = _LATEX_COLUMN_DEFAULT
+        latex_headers = [latex_header_for[column] for column in columns]
         wrote_latex_preamble = False
 
         for key in keys:
@@ -811,9 +1012,10 @@ class Compare(Command):
                 )
             else:
                 table = format_latex_tabular(
-                    [record[1] for record in bench[key]],
+                    [_latex_row(record[1], columns) for record in bench[key]],
                     latex_headers,
                     only_body=only_body,
+                    colspec=_latex_colspec(columns),
                 )
                 if only_body:
                     # Comments keep split groups distinct inside one tabular.
@@ -831,7 +1033,8 @@ class Compare(Command):
                         print()
                     print(table)
 
-        if aa_band or aa_split:
-            worsened = worsened or aa_worsened
-            improved = improved or aa_improved
+        worsened = worsened or aa_worsened
+        improved = improved or aa_improved
+        for bench_name, env_label, round_number in failed_notes:
+            log.warning(f"{bench_name} [{env_label}]: round {round_number} failed")
         return worsened, improved

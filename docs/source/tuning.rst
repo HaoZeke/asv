@@ -28,6 +28,8 @@ against ``base``, so it includes round-to-round drift. A change is
 flagged only when the base-vs-head interval lies entirely outside
 that band. ``--aa-band-split`` is the older half-split of one base
 sample list. It misses that drift, and it is used only when asked for.
+The per-round samples, the ratio CI, and the A/A band are written into
+the result file and read back by ``asv compare``.
 
 If you are planning to capture historical benchmark data for most
 commits, very accurate timings are not necessary.  The detection of

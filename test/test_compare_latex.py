@@ -4,9 +4,10 @@ import os
 
 import pytest
 
-from asv import config, util
+from asv import config, runner, util
 from asv.commands.compare import (
     Compare,
+    format_latex_interval,
     format_latex_ratio,
     format_latex_tabular,
     format_latex_value,
@@ -142,6 +143,31 @@ def test_format_latex_value_and_ratio():
     assert format_latex_ratio('x', '3.00') == r'x \num{3.00}'
     assert format_latex_ratio(' ', '  1.00') == r'\num{1.00}'
     assert format_latex_ratio(' ', 'n/a') == 'n/a'
+
+
+REFERENCE_LATEX_CI = r"""
+% Requires \usepackage{booktabs,siunitx}
+
+\noindent
+\textbf{All benchmarks:}
+
+\begin{tabular}{rrrrl}
+\toprule
+Before [\texttt{aaaaaaaa}] & After [\texttt{bbbbbbbb}] & Ratio CI & A/A & Benchmark \\
+\midrule
+\qty{1.00}{\second} & \qty{2.00}{\second} & + \num{2.00}\,[\num{2.00}, \num{2.00}] & \num{1.00}\,[\num{1.00}, \num{1.00}] & bench.time\_it \\
+\bottomrule
+\end{tabular}
+"""
+
+
+def test_format_latex_interval():
+    assert format_latex_interval((1.03, 1.02, 1.04)) == (r'\num{1.03}\,[\num{1.02}, \num{1.04}]')
+    assert format_latex_interval((2.0, 2.0, 2.0), '+') == (
+        r'+ \num{2.00}\,[\num{2.00}, \num{2.00}]'
+    )
+    assert format_latex_interval(None) == 'n/a'
+    assert format_latex_interval(None, '!') == '! n/a'
 
 
 def test_format_latex_tabular_only_body():
@@ -410,3 +436,126 @@ def test_compare_latex_escaping_params_failed_missing(capsys, tmpdir):
         r'& group.time\_param(\_\&\%\#\$\{\}\textasciitilde{}'
         r'\textasciicircum{}\textbackslash{} line) \\'
     ]
+
+
+def test_compare_latex_ci_and_aa_columns(capsys, tmpdir):
+    results_dir = os.path.join(str(tmpdir), 'results')
+    machine_dir = os.path.join(results_dir, 'cheetah')
+    os.makedirs(machine_dir)
+    util.write_json(
+        os.path.join(machine_dir, 'machine.json'),
+        {'machine': 'cheetah'},
+        api_version=1,
+    )
+    util.write_json(
+        os.path.join(results_dir, 'benchmarks.json'),
+        {
+            'bench.time_it': {
+                'name': 'bench.time_it',
+                'params': [],
+                'param_names': [],
+                'unit': 'seconds',
+                'version': '1',
+            }
+        },
+        api_version=2,
+    )
+    params = {
+        'machine': 'cheetah',
+        'arch': 'x86_64',
+        'cpu': 'cpu',
+        'os': 'Linux',
+        'ram': '1G',
+    }
+    benchmark = {'name': 'bench.time_it', 'version': '1', 'params': []}
+    before = Results(params, {}, 'a' * 40, 1, '3.12', 'py3', {})
+    after = Results(params, {}, 'b' * 40, 2, '3.12', 'py3', {})
+    repeated = Results(params, {}, 'a' * 40, 1, '3.12', 'py3~aa', {})
+    before_row = runner.BenchmarkResult(
+        result=[1.0],
+        samples=[[1.0, 1.0, 1.0, 1.0]],
+        number=[None],
+        errcode=0,
+        stderr='',
+        profile=None,
+    )
+    after_row = runner.BenchmarkResult(
+        result=[2.0],
+        samples=[[2.0, 2.0, 2.0, 2.0]],
+        number=[None],
+        errcode=0,
+        stderr='',
+        profile=None,
+    )
+    before.add_result(benchmark, before_row, record_samples=True, round_number=1)
+    after.add_result(benchmark, after_row, record_samples=True, round_number=1)
+    repeated.add_result(benchmark, before_row, record_samples=True, round_number=1)
+    # A later failed round stays in the file and does not replace the samples.
+    failed = runner.BenchmarkResult(
+        result=[None],
+        samples=[None],
+        number=[None],
+        errcode=1,
+        stderr='boom',
+        profile=None,
+    )
+    after.add_result(benchmark, failed, record_samples=True, append_samples=True, round_number=2)
+    after.set_comparison(
+        'a' * 40,
+        {'bench.time_it': [[2.0, 2.0, 2.0]]},
+        {'bench.time_it': [[1.0, 1.0, 1.0]]},
+    )
+    before.save(results_dir)
+    after.save(results_dir)
+    repeated.save(results_dir)
+
+    loaded = Results.load(os.path.join(results_dir, after._filename))
+    assert loaded.round_samples['bench.time_it'][0] == [[2.0, 2.0, 2.0, 2.0]]
+    assert loaded.round_samples['bench.time_it'][1] is None
+    assert loaded.failed_rounds['bench.time_it'] == [2]
+    assert loaded.get_result_samples('bench.time_it', []) == [[2.0, 2.0, 2.0, 2.0]]
+    assert loaded.get_comparison('aaaaaaaa')['ratio_ci']['bench.time_it'] == [[2.0, 2.0, 2.0]]
+    raw = util.load_json(os.path.join(results_dir, before._filename))
+    assert 'result_columns' in raw
+    assert raw['interleaved']['round_samples']['bench.time_it'] == [[[1.0, 1.0, 1.0, 1.0]]]
+
+    os.chdir(str(tmpdir))
+    conf = config.Config.from_json(
+        {
+            'results_dir': results_dir,
+            'repo': tools.generate_test_repo(str(tmpdir)).path,
+            'project': 'asv',
+            'environment_type': "shouldn't matter what",
+        }
+    )
+    worsened, improved = Compare.print_table(
+        conf,
+        'a' * 40,
+        'b' * 40,
+        factor=1.1,
+        split=False,
+        machine='cheetah',
+        table_format='latex',
+        columns='before,after,ci,aa,benchmark',
+    )
+    text, err = capsys.readouterr()
+    table, _end, rest = text.partition(r'\end{tabular}')
+    assert (table + r'\end{tabular}').strip() == REFERENCE_LATEX_CI.strip()
+    assert 'round 2 failed' in text + err + rest
+    assert worsened
+    assert not improved
+    # The repeated base is an A/A slot, not a third revision in the table.
+    assert text.count(r'bench.time\_it') == 1
+    assert 'py3~aa' not in text
+
+    with pytest.raises(util.UserError, match='columns'):
+        Compare.print_table(
+            conf,
+            'a' * 40,
+            'b' * 40,
+            factor=1.1,
+            split=False,
+            machine='cheetah',
+            table_format='github',
+            columns='ci',
+        )

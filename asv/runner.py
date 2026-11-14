@@ -8,7 +8,6 @@ import os
 import pstats
 import socket
 import struct
-import sys
 import tempfile
 import threading
 import time
@@ -112,6 +111,7 @@ def run_benchmarks(
     append_samples=False,
     run_rounds=None,
     launch_method=None,
+    round_number=None,
 ):
     """
     Run all of the benchmarks in the given `Environment`.
@@ -147,6 +147,9 @@ def run_benchmarks(
         If None, run all rounds.
     launch_method : {'auto', 'spawn', 'forkserver'}, optional
         Benchmark launching method to use.
+    round_number : int, optional
+        1-based interleaved round. Stored with the samples so a failed
+        round can be reported without dropping the other rounds.
 
     Returns
     -------
@@ -276,8 +279,11 @@ def run_benchmarks(
                     selected_idx=selected_idx,
                     started_at=started_at,
                     record_samples=record_samples,
+                    round_number=round_number,
                 )
                 failed_benchmarks.add(name)
+                if round_number is not None:
+                    log.warning(f"{name} failed in round {round_number}")
             return results
 
         # Run benchmarks
@@ -334,8 +340,11 @@ def run_benchmarks(
                     selected_idx=selected_idx,
                     started_at=started_at,
                     record_samples=record_samples,
+                    round_number=round_number,
                 )
                 failed_benchmarks.add(name)
+                if round_number is not None:
+                    log.warning(f"{name} failed in round {round_number}")
                 continue
 
             # If appending to previous results, make sure to use the
@@ -385,12 +394,15 @@ def run_benchmarks(
                 duration=benchmark_durations[name],
                 record_samples=(not is_final or record_samples),
                 append_samples=(name in previous_result_keys),
+                round_number=round_number,
             )
 
             previous_result_keys.add(name)
 
             if all(r is None for r in res.result):
                 failed_benchmarks.add(name)
+                if round_number is not None:
+                    log.warning(f"{name} failed in round {round_number}")
 
             # Log result
             if is_final:

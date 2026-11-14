@@ -229,6 +229,12 @@ class Results:
         self._stderr = {}
         self._errcode = {}
 
+        # Optional interleaved record. Omitted from the file when empty so
+        # older result files stay valid, and older asv ignores the key.
+        self._round_samples = {}
+        self._failed_rounds = {}
+        self._comparisons = {}
+
         if commit_hash is not None:
             self._filename = get_filename(params['machine'], self._commit_hash, env_name)
         else:
@@ -399,6 +405,11 @@ class Results:
 
         # Remove version (may be missing)
         self._benchmark_version.pop(key, None)
+        self._round_samples.pop(key, None)
+        self._failed_rounds.pop(key, None)
+        for comparison in self._comparisons.values():
+            comparison.get('ratio_ci', {}).pop(key, None)
+            comparison.get('aa_band', {}).pop(key, None)
 
     def remove_samples(self, key, selected_idx=None):
         """
@@ -422,6 +433,7 @@ class Results:
         record_samples=False,
         append_samples=False,
         selected_idx=None,
+        round_number=None,
     ):
         """
         Add benchmark result.
@@ -449,10 +461,15 @@ class Results:
         selected_idx : set, optional
             Which indices in a parametrized benchmark to update
 
+        round_number : int, optional
+            1-based round index when commits are interleaved. The samples
+            from this round are kept separately, including a failed round.
+
         """
         new_result = list(result.result)
         new_samples = list(result.samples)
         new_number = result.number
+        incoming_samples = _copy_sample_groups(result.samples)
 
         benchmark_name = benchmark['name']
         benchmark_version = benchmark['version']
@@ -460,11 +477,23 @@ class Results:
         if started_at is None:
             started_at = datetime.datetime.now(datetime.timezone.utc)
 
+        # A failed interleaved round must not erase samples from the rounds
+        # that already succeeded. Record the gap and keep the previous result.
+        same_version = (
+            benchmark_name in self._results
+            and benchmark_version == self._benchmark_version.get(benchmark_name)
+        )
+        incoming_failed = bool(new_result) and all(r is None for r in new_result)
+        previous = self._results.get(benchmark_name)
+        previous_ok = isinstance(previous, list) and any(r is not None for r in previous)
+        if round_number is not None and incoming_failed and same_version and previous_ok:
+            self._set_round_samples(benchmark_name, round_number, None)
+            self._note_failed_round(benchmark_name, round_number, result.stderr, result.errcode)
+            return
+
         new_stats = [None] * len(new_result)
 
-        if benchmark_name in self._results and benchmark_version == self._benchmark_version.get(
-            benchmark_name
-        ):
+        if same_version:
             # Append to old samples, if requested
             if append_samples:
                 old_samples = self.get_result_samples(benchmark_name, benchmark['params'])
@@ -525,6 +554,15 @@ class Results:
         self._stderr[benchmark_name] = result.stderr
         self._errcode[benchmark_name] = result.errcode
 
+        if round_number is not None:
+            if incoming_failed:
+                self._set_round_samples(benchmark_name, round_number, None)
+                self._note_failed_round(
+                    benchmark_name, round_number, result.stderr, result.errcode
+                )
+            else:
+                self._set_round_samples(benchmark_name, round_number, incoming_samples)
+
         if result.profile:
             profile_data = base64.b64encode(zlib.compress(result.profile))
             profile_data = profile_data.decode('ascii')
@@ -567,6 +605,75 @@ class Results:
         Does the given benchmark data have profiling information?
         """
         return self._profiles.get(benchmark_name)
+
+    @property
+    def failed_rounds(self):
+        """Benchmark name to the 1-based rounds that failed."""
+        return self._failed_rounds
+
+    @property
+    def round_samples(self):
+        """
+        Per-round samples for interleaved runs.
+
+        Each value is a list with one entry per round. An entry is ``None``
+        when that round failed, and otherwise the sample groups from that
+        round (one list of samples per parameter combination).
+        """
+        return self._round_samples
+
+    def get_comparison(self, other_hash):
+        """
+        Stored ratio CI and A/A band against *other_hash*, if this file has one.
+
+        *other_hash* may be a prefix of the hash the record was saved under.
+        """
+        if not other_hash or not self._comparisons:
+            return None
+        if other_hash in self._comparisons:
+            return self._comparisons[other_hash]
+        matches = [
+            value
+            for key, value in self._comparisons.items()
+            if key.startswith(other_hash) or other_hash.startswith(key)
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        return None
+
+    def set_comparison(self, other_hash, ratio_ci, aa_band=None):
+        """
+        Remember a comparison against *other_hash*.
+
+        *ratio_ci* and *aa_band* map a benchmark name to a list with one
+        entry per parameter combination. An entry is ``[point, low, high]``
+        or ``None``.
+        """
+        entry = {'ratio_ci': ratio_ci}
+        if aa_band is not None:
+            entry['aa_band'] = aa_band
+        self._comparisons[other_hash] = entry
+
+    def _set_round_samples(self, name, round_number, samples):
+        rounds = self._round_samples.setdefault(name, [])
+        while len(rounds) < round_number:
+            rounds.append(None)
+        rounds[round_number - 1] = samples
+
+    def _note_failed_round(self, name, round_number, stderr, errcode):
+        failed = self._failed_rounds.setdefault(name, [])
+        if round_number not in failed:
+            failed.append(round_number)
+        previous = self._stderr.get(name) or ''
+        note = stderr or ''
+        if note and note not in previous:
+            self._stderr[name] = (previous + '\n' + note).strip()
+        else:
+            self._stderr.setdefault(name, previous)
+        # Keep a non-zero code when this round failed and nothing later
+        # has replaced the result yet. A later successful round overwrites it.
+        if errcode:
+            self._errcode[name] = errcode
 
     def save(self, result_dir):
         """
@@ -655,6 +762,19 @@ class Results:
             'durations': other_durations,
         }
 
+        # Extra top-level object. Result columns stay as they are, so a file
+        # written here still loads in an asv that does not know this key,
+        # and a file written without it still loads here.
+        interleaved = {}
+        if self._round_samples:
+            interleaved['round_samples'] = self._round_samples
+        if self._failed_rounds:
+            interleaved['failed_rounds'] = self._failed_rounds
+        if self._comparisons:
+            interleaved['comparisons'] = self._comparisons
+        if interleaved:
+            data['interleaved'] = interleaved
+
         util.write_json(path, data, self.api_version, compact=True)
 
     def load_data(self, result_dir):
@@ -678,6 +798,9 @@ class Results:
                 '_started_at',
                 '_duration',
                 '_benchmark_version',
+                '_round_samples',
+                '_failed_rounds',
+                '_comparisons',
             ):
                 setattr(self, dict_name, getattr(old, dict_name))
 
@@ -716,6 +839,10 @@ class Results:
             obj._started_at = {}
             obj._duration = d.get('durations', {})
             obj._benchmark_version = {}
+            interleaved = d.get('interleaved') or {}
+            obj._round_samples = interleaved.get('round_samples') or {}
+            obj._failed_rounds = interleaved.get('failed_rounds') or {}
+            obj._comparisons = interleaved.get('comparisons') or {}
 
             simple_keys = {
                 'result': obj._results,
@@ -899,6 +1026,19 @@ class Results:
             return d2
         except KeyError as exc:
             raise util.UserError(f"Error loading results data: missing key {exc}")
+
+
+def _copy_sample_groups(samples):
+    """Copy one round's sample groups so later appends cannot change them."""
+    if samples is None:
+        return None
+    copied = []
+    for group in samples:
+        if group is None:
+            copied.append(None)
+        else:
+            copied.append(list(group))
+    return copied
 
 
 def format_benchmark_result(results, benchmark):

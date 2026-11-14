@@ -620,6 +620,9 @@ class Run(Command):
                         force_record_samples = interleave_rounds and run_rounds[0] > 1
 
                         if success:
+                            display_round = None
+                            if interleave_rounds and run_rounds:
+                                display_round = max_rounds - run_rounds[0] + 1
                             run_benchmarks(
                                 benchmark_set,
                                 env,
@@ -632,6 +635,7 @@ class Run(Command):
                                 append_samples=(append_samples or force_append_samples),
                                 run_rounds=run_rounds,
                                 launch_method=launch_method,
+                                round_number=display_round,
                             )
                         else:
                             skip_benchmarks(benchmark_set, env, results=result)
