@@ -268,6 +268,9 @@ def format_latex_ratio(mark, ratio):
 
     if ratio == 'n/a':
         body = 'n/a'
+    elif ' [' in ratio and ratio.endswith(']'):
+        point, interval = ratio.split(' [', 1)
+        body = rf'\num{{{point}}} [{interval}'
     else:
         body = rf'\num{{{ratio}}}'
 
@@ -470,6 +473,8 @@ class Compare(Command):
         commit_names=None,
         table_format='github',
         only_body=False,
+        bootstrap_ci=False,
+        aa_band=False,
     ):
         if table_format not in ('github', 'latex'):
             raise ValueError(f"Unknown 'table_format' {table_format!r}")
@@ -560,6 +565,8 @@ class Compare(Command):
 
         worsened = False
         improved = False
+        aa_worsened = False
+        aa_improved = False
 
         for benchmark in joint_benchmarks:
             if benchmark in results_1:
@@ -628,7 +635,8 @@ class Compare(Command):
             ):
                 color = 'green'
                 mark = '-'
-                improved = True
+                if not aa_band:
+                    improved = True
             elif _is_result_better(
                 time_1,
                 time_2,
@@ -639,7 +647,8 @@ class Compare(Command):
             ):
                 color = 'red'
                 mark = '+'
-                worsened = True
+                if not aa_band:
+                    worsened = True
             else:
                 color = 'default'
                 mark = ' '
@@ -650,24 +659,50 @@ class Compare(Command):
                 ):
                     ratio = "~" + ratio.strip()
 
+            if (bootstrap_ci or aa_band) and mark not in ('x', '!', '*'):
+                before_samples = ss_1.get(benchmark, (None, None))[1]
+                after_samples = ss_2.get(benchmark, (None, None))[1]
+                ci, aa_mark = _stats.interleaved_ratio_decision(
+                    before_samples,
+                    after_samples,
+                    use_aa_band=aa_band,
+                )
+                if ci is not None:
+                    shown = _stats.format_ratio_ci(ci)
+                    tilde = ratio.startswith('~') and aa_mark is None
+                    ratio = ('~' if tilde else '') + shown
+                if aa_mark == '+':
+                    color = 'red'
+                    mark = '+'
+                    aa_worsened = True
+                elif aa_mark == '-':
+                    color = 'green'
+                    mark = '-'
+                    aa_improved = True
+                elif aa_mark == ' ':
+                    color = 'default'
+                    mark = ' '
+                    ratio = ratio.removeprefix('~')
+
             if only_changed and mark in (' ', 'x', '*'):
                 continue
 
             unit = units[benchmark]
 
-            details = (
-                f"{mark:1s} {human_value(time_1, unit, err=err_1):>15s}  "
-                f"{human_value(time_2, unit, err=err_2):>15s} {ratio:>8s}  "
-            )
-            split_line = details.split()
             if len(machine_env_names) > 1:
                 benchmark_name = "{} [{}]".format(*benchmark)
             else:
                 benchmark_name = benchmark[0]
-            if len(split_line) == 4:
-                split_line += [benchmark_name]
-            else:
-                split_line = [' '] + split_line + [benchmark_name]
+            # Build cells explicitly so a ratio CI ("1.05 [0.98, 1.12]")
+            # stays in the ratio column.
+            mark_cell = mark if mark.strip() else ' '
+            split_line = [
+                mark_cell,
+                human_value(time_1, unit, err=err_1),
+                human_value(time_2, unit, err=err_2),
+                ratio.strip(),
+                benchmark_name,
+            ]
             latex_row = (
                 format_latex_value(time_1, unit, err_1),
                 format_latex_value(time_2, unit, err_2),
@@ -774,4 +809,7 @@ class Compare(Command):
                         print()
                     print(table)
 
+        if aa_band:
+            worsened = worsened or aa_worsened
+            improved = improved or aa_improved
         return worsened, improved

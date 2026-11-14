@@ -13,6 +13,58 @@ from .compare import Compare
 from .run import Run
 
 
+def _rewrite_interleave_rounds(args):
+    """
+    Turn ``--interleave-rounds N`` into a hidden integer option.
+
+    A bare ``--interleave-rounds`` stays a flag so it does not swallow
+    the following branch name.
+    """
+    rewritten = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == '--interleave-rounds' and index + 1 < len(args) and args[index + 1].isdigit():
+            rewritten.extend(['--interleave-round-count', args[index + 1]])
+            index += 2
+            continue
+        if arg.startswith('--interleave-rounds='):
+            value = arg.split('=', 1)[1]
+            if value.isdigit():
+                rewritten.extend(['--interleave-round-count', value])
+                index += 1
+                continue
+        rewritten.append(arg)
+        index += 1
+    return rewritten
+
+
+def _apply_interleave_rounds(interleave_rounds, attribute, quick, aa_band):
+    """
+    Map ``--interleave-rounds N`` onto the existing rounds machinery.
+
+    An integer enables interleaving and sets the ``rounds`` attribute to
+    N, which ``asv run`` already uses to flip commit order each round.
+    Returns ``(interleave_rounds, attribute, report_ci)``.
+    """
+    report_ci = False
+    # bool is a subclass of int; the bare flag is True/False, not a count.
+    if isinstance(interleave_rounds, int) and not isinstance(interleave_rounds, bool):
+        if interleave_rounds < 1:
+            raise util.UserError("--interleave-rounds N must be a positive integer")
+        if quick:
+            raise util.UserError("--interleave-rounds N cannot be combined with --quick")
+        attribute = dict(attribute or {})
+        attribute['rounds'] = interleave_rounds
+        interleave_rounds = True
+        report_ci = True
+    if aa_band:
+        report_ci = True
+        if interleave_rounds is None:
+            interleave_rounds = True
+    return interleave_rounds, attribute, report_ci
+
+
 class Continuous(Command):
     @classmethod
     def setup_arguments(cls, subparsers):
@@ -49,12 +101,26 @@ class Continuous(Command):
             "--interleave-rounds",
             action="store_true",
             default=None,
-            help="""Interleave benchmarks with multiple rounds across
-            commits. This can avoid measurement biases from commit ordering,
-            can take longer.""",
+            help="""Interleave the base and head commits across rounds,
+            flipping the order each round, in one process on one machine.
+            --interleave-rounds N runs N rounds (the rounds attribute)
+            and reports each ratio with a bootstrap 95%% CI.""",
+        )
+        parser.add_argument(
+            "--interleave-round-count",
+            type=int,
+            default=None,
+            help=argparse.SUPPRESS,
         )
         parser.add_argument(
             "--no-interleave-rounds", action="store_false", dest="interleave_rounds"
+        )
+        parser.add_argument(
+            "--aa-band",
+            action="store_true",
+            help="""With interleaved rounds, compare the base commit with
+            itself and flag a change only when the ratio's 95%% CI lies
+            entirely outside that A/A band.""",
         )
         # Backward compatibility for '--(no-)interleave-rounds'
         parser.add_argument(
@@ -77,6 +143,15 @@ class Continuous(Command):
         common_args.add_environment(parser)
         common_args.add_launch_method(parser)
         parser.set_defaults(func=cls.run_from_args)
+        # Accept "--interleave-rounds N" without consuming a branch name.
+        orig_parse = parser.parse_known_args
+
+        def parse_known_args(args=None, namespace=None):
+            if args is not None:
+                args = _rewrite_interleave_rounds(list(args))
+            return orig_parse(args, namespace)
+
+        parser.parse_known_args = parse_known_args
 
         return parser
 
@@ -100,6 +175,8 @@ class Continuous(Command):
             append_samples=args.append_samples,
             quick=args.quick,
             interleave_rounds=args.interleave_rounds,
+            interleave_round_count=args.interleave_round_count,
+            aa_band=args.aa_band,
             launch_method=args.launch_method,
             **kwargs,
         )
@@ -124,9 +201,17 @@ class Continuous(Command):
         append_samples=False,
         quick=False,
         interleave_rounds=None,
+        interleave_round_count=None,
+        aa_band=False,
         launch_method=None,
         _machine_file=None,
     ):
+        if interleave_round_count is not None:
+            interleave_rounds = interleave_round_count
+        interleave_rounds, attribute, report_ci = _apply_interleave_rounds(
+            interleave_rounds, attribute, quick, aa_band
+        )
+
         repo = get_repo(conf)
         repo.pull()
 
@@ -204,6 +289,8 @@ class Continuous(Command):
             only_changed=only_changed,
             sort=sort,
             commit_names=commit_names,
+            bootstrap_ci=report_ci,
+            aa_band=aa_band,
         )
         worsened, improved = status
 

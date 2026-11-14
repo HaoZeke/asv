@@ -20,6 +20,14 @@ can use the ``rounds`` attribute and ``--interleave-rounds``,
 run timing benchmarks at more widely spaced times, in order to average
 over long-time performance variations.
 
+``asv continuous --interleave-rounds N`` uses that same rounds loop.
+It alternates the base and head commits for ``N`` rounds and flips
+the order every round, so a slow drift of the machine is sampled on
+both commits. Each ratio is reported with a bootstrap 95% confidence
+interval. ``--aa-band`` also compares the base samples with themselves
+and flags a change only when the ratio interval lies entirely outside
+that A/A band.
+
 If you are planning to capture historical benchmark data for most
 commits, very accurate timings are not necessary.  The detection of
 regressions in historical benchmark data used in ``asv`` is designed

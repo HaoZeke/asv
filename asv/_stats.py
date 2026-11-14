@@ -214,6 +214,153 @@ def mann_whitney_u_r(m, n, u, memo=None):
     return value
 
 
+def _as_float_list(samples):
+    """Flatten a sample sequence to finite floats."""
+    if samples is None or isinstance(samples, (str, bytes)):
+        return []
+    if isinstance(samples, (int, float)) and not isinstance(samples, bool):
+        samples = [samples]
+    out = []
+    for item in samples:
+        if isinstance(item, (list, tuple)):
+            out.extend(_as_float_list(item))
+            continue
+        if item is None or isinstance(item, bool):
+            continue
+        try:
+            value = float(item)
+        except (TypeError, ValueError):
+            continue
+        if math.isnan(value):
+            continue
+        out.append(value)
+    return out
+
+
+def median(values):
+    """Median of a non-empty sequence of floats."""
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return 0.5 * (ordered[mid - 1] + ordered[mid])
+
+
+def _percentile(sorted_values, probability):
+    """Linear-interpolation percentile. *probability* is in ``[0, 1]``."""
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    position = probability * (len(sorted_values) - 1)
+    lo = math.floor(position)
+    hi = math.ceil(position)
+    if lo == hi:
+        return sorted_values[lo]
+    weight = position - lo
+    return sorted_values[lo] * (1.0 - weight) + sorted_values[hi] * weight
+
+
+def bootstrap_median_ratio_ci(before, after, n_resamples=10000, alpha=0.05, seed=1):
+    """
+    Bootstrap a 95% CI for ``median(after) / median(before)``.
+
+    Returns ``(ratio, low, high)``, or ``None`` when either side has
+    fewer than two finite samples or the before-median is zero.
+    The generator is seeded, so the same samples always yield the same
+    interval.
+    """
+    import random
+
+    before = _as_float_list(before)
+    after = _as_float_list(after)
+    if len(before) < 2 or len(after) < 2:
+        return None
+    before_median = median(before)
+    if before_median == 0:
+        return None
+    point = median(after) / before_median
+
+    rng = random.Random(seed)
+    n_before = len(before)
+    n_after = len(after)
+    ratios = []
+    for _ in range(n_resamples):
+        sample_before = [before[rng.randrange(n_before)] for _ in range(n_before)]
+        sample_after = [after[rng.randrange(n_after)] for _ in range(n_after)]
+        denom = median(sample_before)
+        if denom == 0:
+            continue
+        ratios.append(median(sample_after) / denom)
+    if not ratios:
+        return None
+    ratios.sort()
+    low = _percentile(ratios, alpha / 2.0)
+    high = _percentile(ratios, 1.0 - alpha / 2.0)
+    return point, low, high
+
+
+def aa_ratio_band(samples, n_resamples=10000, alpha=0.05, seed=1):
+    """
+    A/A band: bootstrap CI of the ratio of the first half of *samples*
+    to the second half. This is the spread expected when a commit is
+    compared with itself. Returns the same triple as
+    ``bootstrap_median_ratio_ci``, or ``None`` when the halves are too
+    small.
+    """
+    values = _as_float_list(samples)
+    if len(values) < 4:
+        return None
+    mid = len(values) // 2
+    return bootstrap_median_ratio_ci(
+        values[:mid],
+        values[mid:],
+        n_resamples=n_resamples,
+        alpha=alpha,
+        seed=seed,
+    )
+
+
+def ci_outside_band(ci, band):
+    """
+    True when the ratio interval lies entirely outside the A/A band.
+
+    Both arguments are ``(point, low, high)``. Touching the band is not
+    outside it.
+    """
+    ci_low, ci_high = ci[1], ci[2]
+    band_low, band_high = band[1], band[2]
+    return ci_high < band_low or ci_low > band_high
+
+
+def interleaved_ratio_decision(before, after, use_aa_band=False, n_resamples=10000, seed=1):
+    """
+    Ratio of *after* to *before* with a bootstrap 95% CI.
+
+    Returns ``(ci, mark)``. ``ci`` is ``(ratio, low, high)`` or ``None``.
+    ``mark`` is ``None`` when the caller should keep its own significance
+    mark. When *use_aa_band* is set, ``mark`` is ``'+'`` or ``'-'`` only
+    if the CI lies entirely outside the base-vs-base band, and ``' '``
+    otherwise.
+    """
+    ci = bootstrap_median_ratio_ci(before, after, n_resamples=n_resamples, seed=seed)
+    if not use_aa_band:
+        return ci, None
+    if ci is None:
+        return None, ' '
+    band = aa_ratio_band(before, n_resamples=n_resamples, seed=seed + 1)
+    if band is None or not ci_outside_band(ci, band):
+        return ci, ' '
+    if ci[0] > 1:
+        return ci, '+'
+    if ci[0] < 1:
+        return ci, '-'
+    return ci, ' '
+
+
+def format_ratio_ci(ci):
+    """Render ``(ratio, low, high)`` as ``1.05 [0.98, 1.12]``."""
+    return f"{ci[0]:.2f} [{ci[1]:.2f}, {ci[2]:.2f}]"
+
+
 def binom(n, k):
     """
     Binomial coefficient (n over k)

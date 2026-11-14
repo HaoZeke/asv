@@ -713,3 +713,18 @@ each group is preceded by a ``%`` comment naming that group.
 
    $ asv compare v0.1 v0.2 --format=latex
    $ asv compare v0.1 v0.2 --format=latex --only-body > body.tex
+
+Continuous comparisons
+~~~~~~~~~~~~~~~~~~~~~~
+
+``asv continuous`` runs the base commit and the commit under test.
+``--interleave-rounds N`` alternates those two commits for ``N`` rounds
+in one process, flipping which one goes first each round, using the
+same rounds machinery as ``asv run --interleave-rounds``. The ratio
+column then includes a bootstrap 95% confidence interval::
+
+    asv continuous main HEAD --interleave-rounds 4
+
+``--aa-band`` measures an A/A interval by splitting the base samples in
+half and flags a change only when the base-vs-head interval lies
+entirely outside it.
