@@ -774,3 +774,35 @@ more work on the head commit, 20 rounds produced:
 ::
 
     asv continuous main HEAD --interleave-rounds 20 --aa-band
+
+How small a change is resolved
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default schedule is ``--interleave-rounds 20`` with ``--min-rounds 6``
+and ``--aa-band``. On a quiet pinned runner that resolved a 2%
+slowdown in 30 of 30 runs (mean 6.3 rounds, every one an early
+change). A 1% slowdown was detected in 19 of 30 runs; the fixed
+20-round interval caught 18 of 30. The misses are intervals whose
+lower end still meets the A/A band. One hundred unchanged runs at
+that cap produced no false change (Wilson 95% interval 0 to 3.7%).
+
+``--max-rounds 40`` or ``60`` raises the ceiling. The schedule stays
+four O'Brien-Fleming looks, and the last look is still a 95%
+interval. At both caps a 1% slowdown was detected in 30 of 30 runs
+(mean 7.1 rounds at 40, mean 7.2 at 60). Unchanged runs stayed at 0
+of 100 for each cap (Wilson interval 0 to 3.7%), and those runs used
+the whole cap. The extra rounds are what pulls a 1% interval off the
+band; an unchanged benchmark pays for them only when nothing has
+cleared it earlier.
+
+Pull request benchmarks
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Run the base commit and the pull request on one runner, with
+interleaved rounds and adaptive stopping, and no ``--quick``. The
+default compare table is markdown, which the job summary renders.
+Pass ``--format=latex`` to ``asv compare`` when the summary should be
+a booktabs table instead.
+
+.. literalinclude:: examples/benchmark-pull-request.yml
+   :language: yaml

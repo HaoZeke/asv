@@ -9,6 +9,7 @@ from asv.commands.compare import Compare
 from asv.commands.continuous import (
     _adaptive_settings,
     _apply_interleave_rounds,
+    _apply_max_rounds,
     _store_interleaved_comparisons,
 )
 from asv.commands.run import (
@@ -72,7 +73,22 @@ def test_interleave_rounds_parsing():
     assert adaptive.interleave_round_count == 20
     assert adaptive.min_rounds == 6
     assert adaptive.min_effect == 0.03
+    assert adaptive.max_rounds is None
     assert adaptive.branch == 'feature'
+    capped = parser.parse_args(
+        [
+            'continuous',
+            '--interleave-rounds',
+            '20',
+            '--min-rounds',
+            '6',
+            '--max-rounds',
+            '40',
+            'feature',
+        ]
+    )
+    assert capped.max_rounds == 40
+    assert capped.interleave_round_count == 20
 
 
 def test_apply_interleave_rounds_sets_rounds_attribute():
@@ -117,6 +133,31 @@ def test_adaptive_settings_uses_obf_looks():
         _adaptive_settings(None, 20, True, 0.03)
     with pytest.raises(util.UserError, match='between 0 and 1'):
         _adaptive_settings(6, 20, True, 0)
+
+
+def test_max_rounds_raises_the_cap_and_keeps_four_looks():
+    base = {'rounds': 20}
+    raised = _apply_max_rounds(base, True, 40, False)
+    assert base['rounds'] == 20
+    assert raised['rounds'] == 40
+    _min_effect, looks = _adaptive_settings(6, raised['rounds'], True, None)
+    assert looks[0] == 6
+    assert looks[-1] == 40
+    assert len(looks) == 4
+    assert _stats.obf_alpha(len(looks), len(looks)) == pytest.approx(0.05, abs=1e-4)
+    raised = _apply_max_rounds({'rounds': 20}, True, 60, False)
+    _min_effect, looks = _adaptive_settings(6, raised['rounds'], True, None)
+    assert looks[0] == 6
+    assert looks[-1] == 60
+    assert len(looks) == 4
+    with pytest.raises(util.UserError, match='above 20'):
+        _apply_max_rounds({'rounds': 20}, True, 20, False)
+    with pytest.raises(util.UserError, match='above --interleave-rounds'):
+        _apply_max_rounds({'rounds': 40}, True, 30, False)
+    with pytest.raises(util.UserError, match='requires --interleave-rounds'):
+        _apply_max_rounds(None, True, 40, False)
+    with pytest.raises(util.UserError, match='quick'):
+        _apply_max_rounds({'rounds': 20}, True, 40, True)
 
 
 def test_adaptive_stop_outside_inside_and_undecided():

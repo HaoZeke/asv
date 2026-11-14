@@ -150,6 +150,16 @@ class Continuous(Command):
             when the ratio interval lies entirely inside 1 ± THRESHOLD.
             Without this option an interim look stops only for a change.""",
         )
+        parser.add_argument(
+            "--max-rounds",
+            type=int,
+            default=None,
+            help="""With --interleave-rounds N and --min-rounds, raise
+            the round ceiling above 20. The benchmark may continue
+            until this many rounds. The O'Brien-Fleming schedule stays
+            at most four looks, from --min-rounds through this cap, and
+            the last look is still a 5%% interval.""",
+        )
         # Backward compatibility for '--(no-)interleave-rounds'
         parser.add_argument(
             "--interleave-processes",
@@ -208,6 +218,7 @@ class Continuous(Command):
             aa_band_split=args.aa_band_split,
             min_rounds=args.min_rounds,
             min_effect=args.min_effect,
+            max_rounds=args.max_rounds,
             launch_method=args.launch_method,
             **kwargs,
         )
@@ -237,6 +248,7 @@ class Continuous(Command):
         aa_band_split=False,
         min_rounds=None,
         min_effect=None,
+        max_rounds=None,
         launch_method=None,
         _machine_file=None,
     ):
@@ -247,8 +259,9 @@ class Continuous(Command):
         interleave_rounds, attribute, report_ci = _apply_interleave_rounds(
             interleave_rounds, attribute, quick, aa_band or aa_band_split
         )
-        max_rounds = attribute.get('rounds') if isinstance(attribute, dict) else None
-        adaptive = _adaptive_settings(min_rounds, max_rounds, aa_band or aa_band_split, min_effect)
+        attribute = _apply_max_rounds(attribute, interleave_rounds, max_rounds, quick)
+        round_cap = attribute.get('rounds') if isinstance(attribute, dict) else None
+        adaptive = _adaptive_settings(min_rounds, round_cap, aa_band or aa_band_split, min_effect)
 
         repo = get_repo(conf)
         repo.pull()
@@ -290,7 +303,7 @@ class Continuous(Command):
             log.info(
                 "Adaptive stopping at rounds "
                 + ", ".join(str(number) for number in look_rounds)
-                + ": O'Brien-Fleming over "
+                + f" (cap {look_rounds[-1]}): O'Brien-Fleming over "
                 + f"{len(look_rounds)} looks, {effect_note}"
             )
             after_round = _make_round_stopper(
@@ -412,6 +425,29 @@ def _as_ci_list(ci):
     if ci is None:
         return None
     return [ci[0], ci[1], ci[2]]
+
+
+def _apply_max_rounds(attribute, interleave_rounds, max_rounds, quick):
+    """
+    Raise the interleaved round ceiling.
+
+    ``--interleave-rounds N`` stays the default cap. ``--max-rounds``
+    may set a higher one. The caller still plans at most four
+    O'Brien-Fleming looks across that span.
+    """
+    if max_rounds is None:
+        return attribute
+    if quick:
+        raise util.UserError("--max-rounds cannot be combined with --quick")
+    if not interleave_rounds or not isinstance(attribute, dict) or 'rounds' not in attribute:
+        raise util.UserError("--max-rounds requires --interleave-rounds N")
+    if max_rounds <= 20:
+        raise util.UserError("--max-rounds must be above 20")
+    if max_rounds <= attribute['rounds']:
+        raise util.UserError("--max-rounds must be above --interleave-rounds N")
+    attribute = dict(attribute)
+    attribute['rounds'] = max_rounds
+    return attribute
 
 
 def _adaptive_settings(min_rounds, max_rounds, aa, min_effect):

@@ -1,0 +1,41 @@
+name: Benchmark pull request
+
+"on":
+  pull_request:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch the base commit
+        run: git fetch --no-tags origin ${{ github.event.pull_request.base.sha }}
+
+      - name: Install airspeed velocity
+        run: python -m pip install asv
+
+      - name: Record this runner
+        run: asv machine --machine ci --yes
+
+      - name: Compare the base and the pull request
+        run: |
+          asv continuous \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            --machine ci \
+            --interleave-rounds 20 \
+            --min-rounds 6 \
+            --aa-band
+          asv compare \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}" \
+            --machine ci \
+            >> "$GITHUB_STEP_SUMMARY"
