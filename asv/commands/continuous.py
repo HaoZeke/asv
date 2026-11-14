@@ -137,9 +137,10 @@ class Continuous(Command):
             help="""With --interleave-rounds N and an A/A band, stop a
             benchmark after this many rounds once its ratio CI lies
             entirely outside the band, or no longer does and its
-            half-width is below --ci-tol. Looks from this round through
-            N share a Bonferroni-widened interval, which is also the
-            interval that is stored and printed.""",
+            half-width is below --ci-tol. At most four looks use an
+            O'Brien-Fleming spending of the 5%% tail. The interval from
+            the look that stopped the benchmark is the one stored and
+            printed.""",
         )
         parser.add_argument(
             "--ci-tol",
@@ -281,12 +282,12 @@ class Continuous(Command):
         after_round = None
         ci_alpha = 0.05
         if adaptive is not None:
-            ci_alpha, ci_tol, look_rounds = adaptive
+            ci_tol, look_rounds = adaptive
             log.info(
                 "Adaptive stopping at rounds "
                 + ", ".join(str(number) for number in look_rounds)
-                + f": Bonferroni alpha {ci_alpha:.4f} over {len(look_rounds)} "
-                + f"looks, ci-tol {ci_tol}"
+                + ": O'Brien-Fleming over "
+                + f"{len(look_rounds)} looks, ci-tol {ci_tol}"
             )
             after_round = _make_round_stopper(
                 conf,
@@ -296,7 +297,6 @@ class Continuous(Command):
                 aa_band,
                 aa_band_split,
                 look_rounds,
-                ci_alpha,
                 ci_tol,
                 stopped,
                 commit_slots,
@@ -361,6 +361,7 @@ class Continuous(Command):
                 aa_band=aa_band,
                 aa_split=aa_band_split,
                 alpha=ci_alpha,
+                looks=look_rounds if adaptive is not None else None,
             )
             if adaptive is not None:
                 _report_adaptive_rounds(conf, run_objs, head, stopped)
@@ -411,10 +412,11 @@ def _as_ci_list(ci):
 
 def _adaptive_settings(min_rounds, max_rounds, aa, ci_tol):
     """
-    Return ``(alpha, tol, look_rounds)`` or ``None`` when stopping is off.
+    Return ``(tol, look_rounds)`` or ``None`` when stopping is off.
 
-    The alpha is Bonferroni over at most four planned looks, spread
-    from *min_rounds* through *max_rounds*.
+    At most four looks are spread from *min_rounds* through
+    *max_rounds*. Each look spends an O'Brien-Fleming slice of the
+    5% tail. The last look uses the full 5%.
     """
     if min_rounds is None and ci_tol is None:
         return None
@@ -430,7 +432,7 @@ def _adaptive_settings(min_rounds, max_rounds, aa, ci_tol):
     if tol <= 0:
         raise util.UserError("--ci-tol must be positive")
     looks = _stats.planned_looks(min_rounds, max_rounds)
-    return _stats.sequential_alpha(len(looks)), tol, looks
+    return tol, looks
 
 
 def _param_samples(result, name, params, index):
@@ -450,7 +452,6 @@ def _make_round_stopper(
     aa_band,
     aa_split,
     look_rounds,
-    alpha,
     tol,
     stopped,
     commit_slots,
@@ -462,6 +463,7 @@ def _make_round_stopper(
     def after_round(display_round, skipped):
         if display_round not in look_set:
             return
+        alpha = _stats.obf_alpha(look_rounds.index(display_round) + 1, len(look_rounds))
         if 'environments' not in run_objs:
             return
         machine_name = run_objs['machine_params']['machine']
@@ -539,7 +541,9 @@ def _report_adaptive_rounds(conf, run_objs, head, stopped):
             log.info(f"{name} [{env.name}]: {used} rounds, {detail}")
 
 
-def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_split, alpha=0.05):
+def _store_interleaved_comparisons(
+    conf, run_objs, parent, head, aa_band, aa_split, alpha=0.05, looks=None
+):
     """
     Write the ratio CI and A/A band into the head result files.
 
@@ -586,6 +590,10 @@ def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_spl
                 continue
             if name not in base_result.get_all_result_keys():
                 continue
+            this_alpha = alpha
+            recorded = head_result.round_samples.get(name) or []
+            if looks and recorded:
+                this_alpha = _stats.alpha_for_recorded_rounds(len(recorded), looks)
             params = benchmark['params']
             before = base_result.get_result_samples(name, params)
             after = head_result.get_result_samples(name, params)
@@ -601,13 +609,15 @@ def _store_interleaved_comparisons(conf, run_objs, parent, head, aa_band, aa_spl
                 paired_samples = (
                     paired[index] if paired is not None and index < len(paired) else None
                 )
-                ci = _stats.bootstrap_median_ratio_ci(before_samples, after_samples, alpha=alpha)
+                ci = _stats.bootstrap_median_ratio_ci(
+                    before_samples, after_samples, alpha=this_alpha
+                )
                 if aa_band:
                     band = _stats.bootstrap_median_ratio_ci(
-                        before_samples, paired_samples, alpha=alpha, seed=2
+                        before_samples, paired_samples, alpha=this_alpha, seed=2
                     )
                 elif aa_split:
-                    band = _stats.split_half_aa_band(before_samples, alpha=alpha, seed=2)
+                    band = _stats.split_half_aa_band(before_samples, alpha=this_alpha, seed=2)
                 else:
                     band = None
                 cis.append(_as_ci_list(ci))

@@ -732,12 +732,11 @@ band, or no longer does and its half-width is below ``--ci-tol``
 (default ``0.02``, in ratio units). Touching the band is not outside,
 so a precise no-op stops when the two intervals only overlap. At most
 four looks are spread from round ``M`` through round ``N``, always
-including both ends. The interval uses a Bonferroni alpha, ``0.05``
-divided by the number of looks. That widened interval is the one
-stored and printed. It is wider than a single 95% interval, which is
-the cost of looking more than once. Checking every round would divide
-by many more looks and make a real 3% change hard to resolve, so the
-number of looks is capped.
+including both ends. The looks spend the 5% tail in the O'Brien-Fleming
+way: the critical value at look ``k`` of ``K`` is the usual normal
+quantile times ``sqrt(K / k)``. The last look is an ordinary 95%
+interval, so a small effect is not penalized for the earlier checks.
+An early stop stores and prints the wider interval from that look.
 
 Each round's samples are stored on the result, including a round that
 failed. The ratio CI and the A/A band are stored with the head commit.

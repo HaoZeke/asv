@@ -3,11 +3,16 @@ import os
 
 import pytest
 
-from asv import _stats, config, util
+from asv import _stats, config, runner, util
 from asv.commands import make_argparser
 from asv.commands.compare import Compare
-from asv.commands.continuous import _adaptive_settings, _apply_interleave_rounds
+from asv.commands.continuous import (
+    _adaptive_settings,
+    _apply_interleave_rounds,
+    _store_interleaved_comparisons,
+)
 from asv.commands.run import AA_ENV_SUFFIX, interleaved_slot_order
+from asv.results import Results
 
 from . import tools
 
@@ -84,14 +89,14 @@ def test_apply_interleave_rounds_sets_rounds_attribute():
         _apply_interleave_rounds(3, None, True, False)
 
 
-def test_adaptive_settings_uses_bonferroni_looks():
-    alpha, tol, looks = _adaptive_settings(6, 20, True, None)
+def test_adaptive_settings_uses_obf_looks():
+    tol, looks = _adaptive_settings(6, 20, True, None)
     assert looks[0] == 6
     assert looks[-1] == 20
     assert len(looks) == 4
-    assert alpha == _stats.sequential_alpha(len(looks))
-    assert alpha == pytest.approx(0.05 / 4)
     assert tol == 0.02
+    assert _stats.obf_alpha(len(looks), len(looks)) == pytest.approx(0.05, abs=1e-4)
+    assert _stats.obf_alpha(1, len(looks)) < 0.001
     assert _stats.planned_looks(8, 8) == [8]
     assert _adaptive_settings(None, None, False, None) is None
     with pytest.raises(util.UserError, match='aa-band'):
@@ -122,9 +127,121 @@ def test_adaptive_stop_outside_inside_and_undecided():
     # The widened alpha used for repeated looks is stricter than 95%.
     wide = _stats.bootstrap_median_ratio_ci(noisy, [x * 1.2 for x in noisy], alpha=0.05)
     narrow = _stats.bootstrap_median_ratio_ci(
-        noisy, [x * 1.2 for x in noisy], alpha=_stats.sequential_alpha(4)
+        noisy, [x * 1.2 for x in noisy], alpha=_stats.obf_alpha(1, 4)
     )
     assert (narrow[2] - narrow[1]) > (wide[2] - wide[1])
+
+
+def test_stopping_rule_noop_early_large_effect_first_look_widened_interval(capsys, tmpdir):
+    looks = _stats.planned_looks(6, 20)
+    alpha = _stats.obf_alpha(1, len(looks))
+    assert looks[0] == 6
+    assert _stats.alpha_for_recorded_rounds(looks[0], looks) == alpha
+    assert _stats.alpha_for_recorded_rounds(looks[-1], looks) == pytest.approx(0.05, abs=1e-4)
+    flat = [1.0] * 40
+    doubled = [2.0] * 40
+    # Six rounds of a precise no-op are already decisive at the first look.
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, flat, flat, tol=0.02, alpha=alpha)
+    assert verdict == 'inside'
+    assert _stats.ci_half_width(ci) < 0.02
+    assert not _stats.ci_outside_band(ci, band)
+    # A large effect clears the band at that same first-look alpha.
+    verdict, ci, band = _stats.adaptive_aa_stop(flat, doubled, flat, tol=0.02, alpha=alpha)
+    assert verdict == 'outside'
+    assert ci[0] == 2.0
+
+    before = [1.0, 1.4, 0.7, 1.2, 0.8, 1.5, 0.9, 1.3] * 6
+    after = [value * 1.2 for value in before]
+    nominal = _stats.bootstrap_median_ratio_ci(before, after, alpha=0.05)
+    widened = _stats.bootstrap_median_ratio_ci(before, after, alpha=alpha)
+    assert widened[1] < nominal[1]
+    assert widened[2] > nominal[2]
+    assert _stats.format_ratio_ci(widened) != _stats.format_ratio_ci(nominal)
+
+    results_dir = os.path.join(str(tmpdir), 'results')
+    machine_dir = os.path.join(results_dir, 'mach')
+    os.makedirs(machine_dir)
+    util.write_json(os.path.join(machine_dir, 'machine.json'), {'machine': 'mach'}, api_version=1)
+    util.write_json(
+        os.path.join(results_dir, 'benchmarks.json'),
+        {
+            'bench.time_it': {
+                'name': 'bench.time_it',
+                'params': [],
+                'param_names': [],
+                'version': '1',
+                'unit': 'seconds',
+            }
+        },
+        api_version=2,
+    )
+    params = {'machine': 'mach', 'python': '3.12'}
+    benchmark = {'name': 'bench.time_it', 'version': '1', 'params': []}
+    parent = 'a' * 40
+    head = 'b' * 40
+
+    def store(commit, samples, env_name, round_number=None):
+        result = Results(params, {}, commit, 1, '3.12', env_name, {})
+        result.add_result(
+            benchmark,
+            runner.BenchmarkResult(
+                result=[samples[len(samples) // 2]],
+                samples=[samples],
+                number=[None],
+                errcode=0,
+                stderr='',
+                profile=None,
+            ),
+            record_samples=True,
+            round_number=round_number,
+        )
+        result.save(results_dir)
+
+    store(parent, before, 'py3')
+    # Six recorded rounds selects the first planned look, not the nominal 95%.
+    store(head, after, 'py3', round_number=looks[0])
+    store(parent, before, 'py3~aa')
+    os.chdir(str(tmpdir))
+    conf = config.Config.from_json(
+        {
+            'results_dir': results_dir,
+            'repo': tools.generate_test_repo(str(tmpdir)).path,
+            'project': 'asv',
+            'environment_type': 'virtualenv',
+            'branches': ['main'],
+        }
+    )
+
+    class Bench:
+        def items(self):
+            return [('bench.time_it', benchmark)]
+
+    _store_interleaved_comparisons(
+        conf,
+        {
+            'environments': [type('E', (), {'name': 'py3'})()],
+            'machine_params': {'machine': 'mach'},
+            'benchmarks': Bench(),
+        },
+        parent,
+        head,
+        aa_band=True,
+        aa_split=False,
+        alpha=0.05,
+        looks=looks,
+    )
+    Compare.print_table(
+        conf,
+        parent,
+        head,
+        factor=1.1,
+        split=False,
+        machine='mach',
+        only_changed=False,
+    )
+    text, _err = capsys.readouterr()
+    assert _stats.format_ratio_ci(widened) in text
+    assert _stats.format_ratio_ci(nominal) not in text
 
 
 def test_bootstrap_ci_is_deterministic_for_constant_samples():
