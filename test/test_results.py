@@ -367,3 +367,58 @@ def test_load_result_file_from_before_interleaved_record(tmpdir):
     raw = util.load_json(dest)
     assert 'interleaved' not in raw
     assert raw['version'] == results.Results.api_version
+
+
+def test_failed_round_stays_empty_when_a_run_resumes(tmpdir):
+    """A resumed run must not fill a round that already failed.
+
+    The saved file lists the round in ``failed_rounds`` and stores no
+    samples for it. Loading that file and sampling the round again leaves
+    both facts in place.
+    """
+    params = {
+        'machine': 'cheetah',
+        'arch': 'x86_64',
+        'cpu': 'cpu',
+        'os': 'Linux',
+        'ram': '1G',
+    }
+    benchmark = {'name': 'bench.time_it', 'version': '1', 'params': []}
+    failed = runner.BenchmarkResult(
+        result=[None],
+        samples=[None],
+        number=[None],
+        errcode=1,
+        stderr='round failed',
+        profile=None,
+    )
+    later = runner.BenchmarkResult(
+        result=[1.0],
+        samples=[[1.0, 1.0, 1.0, 1.0, 1.0, 1.0]],
+        number=[6],
+        errcode=0,
+        stderr='',
+        profile=None,
+    )
+    first = results.Results(params, {}, 'a' * 40, 1, '3.12', 'py3', {})
+    first.add_result(benchmark, failed, record_samples=True, round_number=1)
+    assert first.failed_rounds['bench.time_it'] == [1]
+    assert first.round_samples['bench.time_it'][0] is None
+    first.save(str(tmpdir))
+
+    resumed = results.Results(params, {}, 'a' * 40, 1, '3.12', 'py3', {})
+    resumed.load_data(str(tmpdir))
+    resumed.add_result(
+        benchmark,
+        later,
+        record_samples=True,
+        append_samples=True,
+        round_number=1,
+    )
+    assert resumed.failed_rounds['bench.time_it'] == [1]
+    assert resumed.round_samples['bench.time_it'][0] is None
+    resumed.save(str(tmpdir))
+
+    loaded = results.Results.load(os.path.join(str(tmpdir), first._filename))
+    assert loaded.failed_rounds['bench.time_it'] == [1]
+    assert loaded.round_samples['bench.time_it'][0] is None
