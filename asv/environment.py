@@ -458,6 +458,31 @@ def is_existing_only(environments):
     return all(isinstance(env, ExistingEnvironment) for env in environments)
 
 
+def _select_project_wheel(wheels, project):
+    """
+    Pick the wheel that belongs to *project*.
+
+    The build cache also holds dependency wheels. A name such as ``asv``
+    must not match ``asv_runner``. Returns the filename, ``None`` when
+    there is nothing to install, or the list when more than one wheel
+    matches.
+    """
+    if not wheels:
+        return None
+    if project:
+        wanted = project.lower().replace('-', '_')
+        matched = [
+            name for name in wheels if name.split('-', 1)[0].lower().replace('-', '_') == wanted
+        ]
+        if len(matched) == 1:
+            return matched[0]
+        if len(matched) > 1:
+            return matched
+    if len(wheels) == 1:
+        return wheels[0]
+    return wheels
+
+
 class EnvironmentUnavailable(BaseException):
     pass
 
@@ -814,12 +839,13 @@ class Environment:
             if os.path.isdir(cache_dir):
                 files = os.listdir(cache_dir)
                 wheels = [fn for fn in files if fn.lower().endswith('.whl')]
-                if len(wheels) == 1:
-                    kwargs['wheel_file'] = os.path.join(cache_dir, wheels[0])
-                if len(wheels) > 1:
+                chosen = _select_project_wheel(wheels, self._project)
+                if isinstance(chosen, list):
                     raise util.UserError(
-                        f"Found multiple wheels in f{cache_dir}. Cannot decide correct one"
+                        f"Found multiple wheels in {cache_dir}. Cannot decide correct one"
                     )
+                if chosen is not None:
+                    kwargs['wheel_file'] = os.path.join(cache_dir, chosen)
 
         # Interpolate, and raise useful error message if it fails
         return [util.interpolate_command(c, kwargs) for c in commands]

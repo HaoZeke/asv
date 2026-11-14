@@ -1149,3 +1149,16 @@ def test_interpolate_multiple_wheels_raises(basic_conf, request):
 
     with pytest.raises(util.UserError, match="Found multiple wheels"):
         env._interpolate_commands(["python -c 'print({wheel_file})'"])
+
+
+def test_select_project_wheel_ignores_dependencies():
+    wheels = [
+        'asv_runner-0.3.2-py3-none-any.whl',
+        'asv-0.5.2-cp36-abi3-linux_x86_64.whl',
+        'json5-0.17.3-py3-none-any.whl',
+    ]
+    assert environment._select_project_wheel(wheels, 'asv') == (
+        'asv-0.5.2-cp36-abi3-linux_x86_64.whl'
+    )
+    assert isinstance(environment._select_project_wheel(['a.whl', 'b.whl'], 'asv'), list)
+    assert environment._select_project_wheel(['only.whl'], '') == 'only.whl'
