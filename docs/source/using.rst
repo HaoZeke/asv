@@ -351,6 +351,22 @@ results from previous runs on the command line::
 
     ...
 
+``asv show COMMIT --format=latex`` writes those results as a ``booktabs``
+table with columns for the benchmark, its parameters, and the value.
+Parameterized benchmarks use one row per parameter combination. A failed
+or skipped result is an em-dash (``---``). Names and parameters are
+escaped the same way as ``asv compare --format=latex``, and the
+measurements use ``siunitx``. Add ``booktabs`` and ``siunitx`` to the
+preamble. ``--only-body`` prints only the rows.
+
+.. code-block:: console
+
+   $ asv show v0.2 --format=latex
+   $ asv show v0.2 --format=latex --only-body > body.tex
+
+When the commit has results for more than one machine or environment,
+the benchmark cell includes that machine and environment.
+
 To collate a set of results into a viewable website, run::
 
     asv publish

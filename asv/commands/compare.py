@@ -284,21 +284,22 @@ def format_latex_ratio(mark, ratio):
     return ' '.join(parts) + ' ' + body
 
 
-def format_latex_tabular(rows, headers, only_body=False):
+def format_latex_tabular(rows, headers, only_body=False, colspec='rrrl'):
     """
     Render *rows* as a booktabs tabular.
 
-    Each row is ``(before, after, ratio, benchmark)``. With *only_body*,
-    return only the ``\\\\``-terminated lines.
+    Each row is a sequence of already formatted cell strings. *colspec*
+    is the tabular column specification; the comparison table uses
+    ``rrrl``. With *only_body*, return only the ``\\\\``-terminated lines.
     """
     lines = []
     if not only_body:
-        lines.append(r'\begin{tabular}{rrrl}')
+        lines.append(rf'\begin{{tabular}}{{{colspec}}}')
         lines.append(r'\toprule')
         lines.append(' & '.join(headers) + r' \\')
         lines.append(r'\midrule')
-    for before, after, ratio, name in rows:
-        lines.append(f'{before} & {after} & {ratio} & {name} \\\\')
+    for row in rows:
+        lines.append(' & '.join(row) + r' \\')
     if not only_body:
         lines.append(r'\bottomrule')
         lines.append(r'\end{tabular}')

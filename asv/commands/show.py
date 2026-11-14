@@ -1,9 +1,11 @@
 # Licensed under a 3-clause BSD style license - see LICENSE.rst
 
+import itertools
 import math
 from collections import defaultdict
 
 from asv_runner.console import color_print
+from asv_runner.statistics import get_err
 
 from .. import util
 from ..benchmarks import Benchmarks
@@ -15,6 +17,12 @@ from ..results import iter_results_for_machine, iter_results_for_machine_and_has
 from ..runner import format_benchmark_result
 from ..util import load_json
 from . import Command, common_args
+from .compare import (
+    _format_param_for_display,
+    format_latex_tabular,
+    format_latex_value,
+    latex_escape,
+)
 
 
 class Show(Command):
@@ -33,6 +41,22 @@ class Show(Command):
         parser.add_argument(
             '--durations', action='store_true', default=False, help="""Show only run durations"""
         )
+        parser.add_argument(
+            '--format',
+            dest='table_format',
+            choices=('text', 'latex'),
+            default='text',
+            help="""Output format. 'text' (default) is the usual listing.
+            'latex' is a booktabs tabular of one commit, with columns
+            benchmark, parameters, and value.""",
+        )
+        parser.add_argument(
+            '--only-body',
+            action='store_true',
+            help="""With --format=latex, emit only the tabular body:
+            one row per benchmark or parameter combination, without the
+            tabular environment, column headings, or booktabs rules.""",
+        )
         common_args.add_bench(parser)
         common_args.add_machine(parser)
         common_args.add_environment(parser)
@@ -50,6 +74,8 @@ class Show(Command):
             env_spec=args.env_spec,
             details=args.details,
             durations=args.durations,
+            table_format=args.table_format,
+            only_body=args.only_body,
             **kwargs,
         )
 
@@ -63,7 +89,18 @@ class Show(Command):
         env_spec=None,
         details=False,
         durations=False,
+        table_format='text',
+        only_body=False,
     ):
+        if table_format not in ('text', 'latex'):
+            raise ValueError(f"Unknown 'table_format' {table_format!r}")
+        if only_body and table_format != 'latex':
+            raise util.UserError("--only-body applies to --format=latex")
+        if table_format == 'latex' and durations:
+            raise util.UserError("--format=latex shows benchmark results, not --durations")
+        if table_format == 'latex' and commit is None:
+            raise util.UserError("--format=latex requires a commit")
+
         if env_spec:
             env_names = [
                 env.name for env in get_environments(conf, env_spec, verbose=False)
@@ -97,6 +134,10 @@ class Show(Command):
             result_iter = cls._iter_results(conf, machines, env_names, commit)
             if durations:
                 cls._print_result_durations(conf, commit, result_iter, benchmarks)
+            elif table_format == 'latex':
+                cls._print_results_latex(
+                    conf, commit, result_iter, benchmarks, only_body=only_body
+                )
             else:
                 cls._print_results(conf, commit, result_iter, benchmarks, show_details=details)
 
@@ -237,6 +278,92 @@ class Show(Command):
             color_print(f"  samples: {samples}")
 
         color_print("")
+
+    @classmethod
+    def _latex_measurement(cls, value, unit, stat):
+        """siunitx cell, or an em-dash when the result failed or was skipped."""
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return '---'
+        err = get_err(value, stat) if stat else None
+        return format_latex_value(value, unit, err=err)
+
+    @classmethod
+    def _print_results_latex(cls, conf, commit_hash, result_iter, benchmarks, only_body=False):
+        """
+        Booktabs table of one commit: benchmark, parameters, value.
+
+        Parameterized results are one row per parameter combination.
+        Several machines or environments keep a single table; the benchmark
+        cell then includes ``[machine/env]``.
+        """
+        repo = get_repo(conf)
+        entries = []
+        contexts = set()
+
+        for machine, result in result_iter:
+            contexts.add((machine, result.env_name))
+            for name in result.get_result_keys(benchmarks):
+                benchmark = benchmarks[name]
+                # Recorded parameter grid, or the benchmark's grid when a
+                # failed run stored none, so each combination is still a row.
+                params = result.get_result_params(name) or benchmark.get('params') or []
+                values = result.get_result_value(name, params)
+                stats = result.get_result_stats(name, params)
+                if values is None:
+                    values = [None]
+                if not stats:
+                    stats = [None] * len(values)
+                combos = list(itertools.product(*params)) if params else [()]
+                for combo, value, stat in zip(combos, values, stats):
+                    if combo:
+                        param_text = ', '.join(_format_param_for_display(p) for p in combo)
+                    else:
+                        param_text = ''
+                    entries.append(
+                        (
+                            name,
+                            param_text,
+                            machine,
+                            result.env_name,
+                            value,
+                            stat,
+                            benchmark.get('unit'),
+                        )
+                    )
+
+        entries.sort(key=lambda item: item[:4])
+        several = len(contexts) > 1
+        rows = []
+        for name, param_text, machine, env_name, value, stat, unit in entries:
+            label = f'{name} [{machine}/{env_name}]' if several else name
+            rows.append(
+                (
+                    latex_escape(label),
+                    latex_escape(param_text),
+                    cls._latex_measurement(value, unit, stat),
+                )
+            )
+
+        table = format_latex_tabular(
+            rows,
+            ['Benchmark', 'Parameters', 'Value'],
+            only_body=only_body,
+            colspec='llr',
+        )
+
+        log.flush()
+        if only_body:
+            if table:
+                print(table)
+            return
+
+        decorated = repo.get_decorated_hash(commit_hash, conf.hash_length)
+        print(r'% Requires \usepackage{booktabs,siunitx}')
+        print()
+        print(r'\noindent')
+        print(r'\textbf{Commit ' + latex_escape(decorated) + ':}')
+        print()
+        print(table)
 
     @classmethod
     def _get_durations(cls, result_iter, benchmarks, commits=False):
