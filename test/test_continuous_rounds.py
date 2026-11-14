@@ -11,7 +11,14 @@ from asv.commands.continuous import (
     _apply_interleave_rounds,
     _store_interleaved_comparisons,
 )
-from asv.commands.run import AA_ENV_SUFFIX, interleaved_slot_order
+from asv.commands.run import (
+    AA_ENV_SUFFIX,
+    install_commits_once,
+    interleaved_slot_order,
+    runner_for_interleaved_slot,
+    unique_slot_commits,
+)
+from asv.environment import Environment
 from asv.results import Results
 
 from . import tools
@@ -388,3 +395,53 @@ def test_print_table_aa_band_uses_samples(capsys, tmpdir):
     assert '1.00 [1.00, 1.00]' in text
     data_row = next(line for line in text.splitlines() if 'bench.time_it' in line)
     assert data_row.split('|')[1].strip() == ''
+
+
+def test_interleaved_rounds_do_not_rebuild_when_install_is_ready(tmpdir):
+    commit_base = 'a' * 40
+    commit_head = 'b' * 40
+    slots = [(commit_base, ''), (commit_base, AA_ENV_SUFFIX), (commit_head, '')]
+    env = Environment.__new__(Environment)
+    env._path = os.path.join(str(tmpdir), 'env')
+    os.makedirs(env._path)
+    env._repo_subdir = None
+    env._install_timeout = 0
+    env._project = 'accum'
+    env._build_command = None
+    env._install_command = None
+    env._uninstall_command = None
+    env._global_env_vars = {}
+    env._cache = None
+    env.tool_name = 'virtualenv'
+    env._python = '3.12'
+    env._requirements = {}
+    env._tagged_env_vars = {}
+    env.installs = []
+
+    def forbid_install(conf, repo, commit_hash):
+        env.installs.append(commit_hash)
+        raise AssertionError(commit_hash)
+
+    env.install_project = forbid_install
+    checksum = env._get_install_checksum()
+    for commit in (commit_base, commit_head):
+        path = env.retained_env_path(commit)
+        os.makedirs(path)
+        util.write_json(
+            os.path.join(path, 'asv-install-status.json'),
+            {'commit_hash': commit, 'install_checksum': checksum},
+            api_version=1,
+        )
+
+    commits = unique_slot_commits(slots)
+    retained, _durations = install_commits_once(env, None, None, commits)
+    assert env.installs == []
+    assert list(retained) == [commit_base, commit_head]
+    for number in range(1, 5):
+        for commit, _suffix in interleaved_slot_order(slots, number):
+            runner = runner_for_interleaved_slot(env, commit, retained)
+            assert runner is not None
+            assert runner is not env
+            assert runner._path == env.retained_env_path(commit)
+    install_commits_once(env, None, None, commits)
+    assert env.installs == []

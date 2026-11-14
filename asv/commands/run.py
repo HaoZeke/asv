@@ -36,6 +36,50 @@ def interleaved_slot_order(slots, display_round):
     return slots[shift:] + slots[:shift]
 
 
+def unique_slot_commits(slots):
+    """Commit hashes in *slots*, in order, without repeats."""
+    commits = []
+    for commit_hash, _suffix in slots:
+        if commit_hash and commit_hash not in commits:
+            commits.append(commit_hash)
+    return commits
+
+
+def install_commits_once(env, conf, repo, commits):
+    """
+    Install each commit in *commits* once.
+
+    Returns ``(retained, durations)``. ``retained`` maps a commit hash
+    to the environment that has it installed, or ``None`` when that
+    install failed. A repeated hash does not install again.
+    """
+    retained = {}
+    durations = {}
+    for commit_hash in commits:
+        if not commit_hash or commit_hash in retained:
+            continue
+        started = time.time()
+        try:
+            retained[commit_hash] = env.retain_commit(conf, repo, commit_hash)
+        except util.ProcessError:
+            retained[commit_hash] = None
+        durations[commit_hash] = time.time() - started
+    return retained, durations
+
+
+def runner_for_interleaved_slot(env, commit_hash, retained):
+    """
+    Environment that should run this interleaved slot.
+
+    When *retained* already has *commit_hash*, that install is reused
+    and the caller must not build or install again. ``None`` means the
+    retained install failed.
+    """
+    if retained is not None and commit_hash in retained:
+        return retained[commit_hash]
+    return env
+
+
 def _do_build(args):
     env, conf, repo, commit_hash = args
     started_at = time.time()
@@ -503,6 +547,16 @@ class Run(Command):
                     yield run_rounds, slot
 
         build_durations = defaultdict(lambda: 0)
+        retained_by_env = {}
+        if interleave_rounds:
+            commits = unique_slot_commits(schedule)
+            for env in environments:
+                if not env.can_install_project():
+                    continue
+                retained, retain_durations = install_commits_once(env, conf, repo, commits)
+                retained_by_env[env.name] = retained
+                for commit_hash, duration in retain_durations.items():
+                    build_durations[(commit_hash, env.name)] += duration
         slots_done = 0
 
         def finish_slot(run_rounds):
@@ -544,22 +598,25 @@ class Run(Command):
 
             with log.indent():
                 for subenv in util.iter_chunks(active_environments, parallel):
-                    successes = {
-                        env.name: (True, 0) for env in subenv if not env.can_install_project()
-                    }
-                    successes.update(
-                        {
-                            env.name: (env.installed_commit_hash == commit_hash, 0)
-                            for env in subenv
-                            if env.can_install_project()
-                        }
-                    )
-
-                    env_to_install = [
-                        env
-                        for env in subenv
-                        if env.can_install_project() and env.installed_commit_hash != commit_hash
-                    ]
+                    successes = {}
+                    env_to_install = []
+                    slot_runner = {}
+                    for env in subenv:
+                        if interleave_rounds and env.name in retained_by_env:
+                            runner = runner_for_interleaved_slot(
+                                env, commit_hash, retained_by_env[env.name]
+                            )
+                            slot_runner[env.name] = runner
+                            successes[env.name] = (runner is not None, 0)
+                            continue
+                        slot_runner[env.name] = env
+                        if not env.can_install_project():
+                            successes[env.name] = (True, 0)
+                            continue
+                        ready = env.installed_commit_hash == commit_hash
+                        successes[env.name] = (ready, 0)
+                        if not ready:
+                            env_to_install.append(env)
 
                     subenv_name = ', '.join([x.name for x in env_to_install])
 
@@ -639,7 +696,7 @@ class Run(Command):
                                 display_round = max_rounds - run_rounds[0] + 1
                             run_benchmarks(
                                 benchmark_set,
-                                env,
+                                slot_runner.get(env.name) or env,
                                 results=result,
                                 show_stderr=show_stderr,
                                 quick=quick,

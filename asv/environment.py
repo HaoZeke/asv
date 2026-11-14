@@ -5,11 +5,13 @@ Manages an environment -- a combination of a version of Python and set
 of dependencies.
 """
 
+import copy
 import hashlib
 import importlib
 import itertools
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -918,6 +920,65 @@ class Environment:
 
         # Mark installation as updated
         self._set_installed_commit_hash(commit_hash)
+
+    def retained_env_path(self, commit_hash):
+        """Directory of the per-commit install reused by interleaved rounds."""
+        return self._path + "-retained-" + commit_hash
+
+    def _retained_ready(self, path, commit_hash):
+        """True when *path* already holds an install of *commit_hash*."""
+        if not os.path.isdir(path):
+            return False
+        hash_file = os.path.join(path, "asv-install-status.json")
+        if not os.path.isfile(hash_file):
+            return False
+        try:
+            data = util.load_json(hash_file, api_version=1)
+        except util.UserError:
+            return False
+        if data.get("install_checksum") != self._get_install_checksum():
+            return False
+        return data.get("commit_hash") == commit_hash
+
+    def _ignore_retained_copy(self, directory, names):
+        if os.path.abspath(directory) != os.path.abspath(self._path):
+            return set()
+        # The checkout and wheel cache stay on the original environment.
+        # Each retained copy gets its own project tree and shares the cache.
+        return {"asv-build-cache", "project"} & set(names)
+
+    def _clone_at(self, path):
+        """Same environment, pointed at an already-created install tree."""
+        clone = copy.copy(self)
+        clone._path = path
+        clone._build_root = os.path.abspath(os.path.join(path, "project"))
+        clone._cache = self._cache
+        clone._global_env_vars = dict(self._global_env_vars)
+        clone._global_env_vars["ASV_ENV_DIR"] = path
+        clone._is_setup = True
+        return clone
+
+    def retain_commit(self, conf, repo, commit_hash):
+        """
+        Return an environment with *commit_hash* installed.
+
+        The first call copies this environment and installs the commit.
+        A later call for the same commit returns that install and does
+        not check the tree out or install again.
+        """
+        path = self.retained_env_path(commit_hash)
+        if self._retained_ready(path, commit_hash):
+            clone = self._clone_at(path)
+            clone._set_commit_hash(commit_hash)
+            log.info(f"Reusing installed {commit_hash[:8]} in {self.name}")
+            return clone
+
+        if os.path.exists(path):
+            util.long_path_rmtree(path)
+        shutil.copytree(self._path, path, symlinks=True, ignore=self._ignore_retained_copy)
+        clone = self._clone_at(path)
+        clone.install_project(conf, repo, commit_hash)
+        return clone
 
     def _install_project(self, repo, commit_hash, build_dir):
         """

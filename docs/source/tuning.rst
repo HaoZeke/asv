@@ -23,8 +23,10 @@ over long-time performance variations.
 ``asv continuous --interleave-rounds N`` uses that same rounds loop.
 ``--aa-band`` adds a second copy of the base commit to the rotation
 (``base``, ``base'``, ``head``), moving the starting slot forward
-every round. The A/A band is the bootstrap interval of ``base'``
-against ``base``, so it includes round-to-round drift. A change is
+every round. Base and head are installed once and then reused, so
+a later round only reruns the benchmarks. The A/A band is the
+bootstrap interval of ``base'`` against ``base``, so it includes
+round-to-round drift. A change is
 flagged only when the base-vs-head interval lies entirely outside
 that band. ``--aa-band-split`` is the older half-split of one base
 sample list. It misses that drift, and it is used only when asked for.

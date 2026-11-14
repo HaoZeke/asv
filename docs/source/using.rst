@@ -720,7 +720,10 @@ Continuous comparisons
 ``asv continuous`` runs the base commit and the commit under test.
 ``--interleave-rounds N`` runs them for ``N`` rounds in one process.
 ``--aa-band`` inserts a second copy of the base commit and rotates
-``base``, ``base'``, ``head`` each round. The ratio column includes a
+``base``, ``base'``, ``head`` each round. Each of those commits is
+installed once. Later rounds reuse that install and only rerun the
+benchmarks, so a round does not check the tree out again or reinstall
+the wheel. The ratio column includes a
 bootstrap 95% confidence interval, and a change is flagged only when
 that interval lies entirely outside the ``base'`` / ``base`` band.
 ``--aa-band-split`` instead splits one base sample list in half. That
